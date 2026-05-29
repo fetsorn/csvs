@@ -119,7 +119,7 @@ async fn insert_with_prose() -> Result<()> {
     dataset.insert_record(vec![record]).await?;
 
     // Check that the blob was written
-    let blob_path = temp_path.path().join("prose").join("moved-to-bath.en");
+    let blob_path = temp_path.path().join("@").join("moved-to-bath.en");
     assert!(blob_path.exists(), "prose blob should be written");
 
     let content = fs::read_to_string(&blob_path)?;
@@ -144,7 +144,7 @@ async fn update_with_nested_prose() -> Result<()> {
     dataset.update_record(vec![record]).await?;
 
     // Check that nested prose blobs were written
-    let prose_dir = temp_path.path().join("prose");
+    let prose_dir = temp_path.path().join("@");
     assert!(prose_dir.exists(), "prose dir should exist");
 
     let event_en = fs::read_to_string(prose_dir.join("event.en"))?;

@@ -1,6 +1,6 @@
+use crate::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::Result;
 
 /// Addressing strategy for the prose store.
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ impl ProseAddress {
             Some(l) => format!("{}.{}", encoded, l),
         };
 
-        dir.join("prose").join(filename)
+        dir.join("@").join(filename)
     }
 
     /// Read all prose for a value (untagged + all language tags).
@@ -43,7 +43,7 @@ impl ProseAddress {
         }
 
         // Scan for language-tagged files
-        let prose_dir = dir.join("prose");
+        let prose_dir = dir.join("@");
 
         if prose_dir.is_dir() {
             let encoded = match self {
@@ -69,7 +69,13 @@ impl ProseAddress {
     }
 
     /// Write a single prose blob.
-    pub fn write_prose(&self, dir: &Path, value: &str, lang: Option<&str>, content: &str) -> Result<()> {
+    pub fn write_prose(
+        &self,
+        dir: &Path,
+        value: &str,
+        lang: Option<&str>,
+        content: &str,
+    ) -> Result<()> {
         let path = self.path(dir, value, lang);
 
         if let Some(parent) = path.parent() {
@@ -83,8 +89,13 @@ impl ProseAddress {
 
     /// Search prose files for content matching a regex pattern.
     /// Returns values whose prose matches.
-    pub fn search_prose(&self, dir: &Path, pattern: &str, lang: Option<&str>) -> Result<Vec<String>> {
-        let prose_dir = dir.join("prose");
+    pub fn search_prose(
+        &self,
+        dir: &Path,
+        pattern: &str,
+        lang: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let prose_dir = dir.join("@");
 
         if !prose_dir.is_dir() {
             return Ok(vec![]);
@@ -159,10 +170,7 @@ fn uri_decode(value: &str) -> String {
 
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(
-                &value[i + 1..i + 3],
-                16,
-            ) {
+            if let Ok(byte) = u8::from_str_radix(&value[i + 1..i + 3], 16) {
                 decoded.push(byte);
                 i += 3;
                 continue;
