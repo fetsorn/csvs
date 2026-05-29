@@ -26,7 +26,7 @@ function uriDecode(value) {
 function prosePath(dir, value, lang) {
   const encoded = uriEncode(value);
   const filename = lang ? `${encoded}.${lang}` : encoded;
-  return path.join(dir, "prose", filename);
+  return path.join(dir, "@", filename);
 }
 
 /**
@@ -48,7 +48,7 @@ export async function readProse(fs, dir, value) {
   }
 
   // Scan for language-tagged files
-  const proseDir = path.join(dir, "prose");
+  const proseDir = path.join(dir, "@");
   const encoded = uriEncode(value);
   const prefix = `${encoded}.`;
 
@@ -95,7 +95,7 @@ export async function writeProse(fs, dir, value, lang, content) {
  * Returns values whose prose matches.
  */
 export async function searchProse(fs, dir, pattern, lang) {
-  const proseDir = path.join(dir, "prose");
+  const proseDir = path.join(dir, "@");
   const re = new RegExp(pattern);
   const matches = [];
 

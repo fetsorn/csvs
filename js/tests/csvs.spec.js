@@ -298,7 +298,7 @@ describe("prose", () => {
     });
 
     // Check blob was written
-    const blobPath = join(tmpdir, "prose", "moved-to-bath.en");
+    const blobPath = join(tmpdir, "@", "moved-to-bath.en");
     expect(nodefs.existsSync(blobPath)).toBe(true);
     expect(nodefs.readFileSync(blobPath, "utf8")).toBe(
       "Relocated to Bath for work",

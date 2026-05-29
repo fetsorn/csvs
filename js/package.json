@@ -1,7 +1,7 @@
 {
   "name": "@fetsorn/csvs-js",
   "description": "csvs: comma-separated value store",
-  "version": "0.29.4",
+  "version": "0.29.5",
   "author": "Anton Davydov <fetsorn@gmail.com>",
   "license": "AGPL-3.0-or-later",
   "type": "module",
