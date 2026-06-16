@@ -3,7 +3,7 @@
  */
 
 #include "csvs_internal.h"
-#include "lib/libcsv/csv.h"
+#include <csv.h>
 
 /* ── Newline escape/unescape ─────────────────────────────────────── */
 
