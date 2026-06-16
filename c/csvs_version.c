@@ -9,7 +9,7 @@ csvs_entry csvs_select_version(const char *dir)
     csvs_entry e = csvs_entry_new(".");
 
     char path[1024];
-    snprintf(path, sizeof(path), "%s/.csvs.csv", dir);
+    (void)snprintf(path, sizeof(path), "%s/.csvs.csv", dir);
 
     csvs_groups gs = csvs_read_groups(path);
 
@@ -30,7 +30,7 @@ csvs_entry csvs_select_version(const char *dir)
 int csvs_update_version(const char *dir, const csvs_entry *query)
 {
     char path[1024];
-    snprintf(path, sizeof(path), "%s/.csvs.csv", dir);
+    (void)snprintf(path, sizeof(path), "%s/.csvs.csv", dir);
 
     FILE *fp = fopen(path, "w");
     if (!fp) {
@@ -54,14 +54,20 @@ int csvs_update_version(const char *dir, const csvs_entry *query)
     }
 
     /* Write sorted */
-    for (size_t i = 0; i < nlines; i++)
-        csvs_write_line(fp, lines[i].key, lines[i].val);
+    int werr = 0;
+    for (size_t i = 0; i < nlines; i++) {
+        if (csvs_write_line(fp, lines[i].key, lines[i].val) != 0)
+            werr = 1;
+    }
 
     for (size_t i = 0; i < nlines; i++) {
         free(lines[i].key);
         free(lines[i].val);
     }
     free(lines);
-    fclose(fp);
+    if (fclose(fp) != 0 || werr) {
+        csvs_set_error("write error on %s", path);
+        return -1;
+    }
     return 0;
 }

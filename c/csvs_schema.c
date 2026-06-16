@@ -274,12 +274,14 @@ static int cmp_descending(const void *a, const void *b)
 
 void csvs_sort_ascending(const csvs_schema *s, char **names, size_t n)
 {
+    if (!names || n == 0) return;
     sort_schema = s;
     qsort(names, n, sizeof(char *), cmp_ascending);
 }
 
 void csvs_sort_descending(const csvs_schema *s, char **names, size_t n)
 {
+    if (!names || n == 0) return;
     sort_schema = s;
     qsort(names, n, sizeof(char *), cmp_descending);
 }

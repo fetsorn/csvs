@@ -31,13 +31,14 @@
 static char *csvs_test_read_file(const char *path)
 {
     FILE *f = fopen(path, "rb");
-    if (!f) { fprintf(stderr, "cannot open %s\n", path); return NULL; }
-    fseek(f, 0, SEEK_END);
+    if (!f) { (void)fprintf(stderr, "cannot open %s\n", path); return NULL; }
+    if (fseek(f, 0, SEEK_END) != 0) { (void)fclose(f); return NULL; }
     long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char *buf = malloc(len + 1);
-    if (buf) { fread(buf, 1, len, f); buf[len] = '\0'; }
-    fclose(f);
+    if (len < 0) { (void)fclose(f); return NULL; }
+    if (fseek(f, 0, SEEK_SET) != 0) { (void)fclose(f); return NULL; }
+    char *buf = malloc((size_t)len + 1);
+    if (buf) { (void)fread(buf, 1, (size_t)len, f); buf[len] = '\0'; }
+    (void)fclose(f);
     return buf;
 }
 

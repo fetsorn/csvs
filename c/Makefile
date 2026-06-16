@@ -35,6 +35,27 @@ $(TEST_BIN): tests/test_main.o libcsvs.a
 test: $(TEST_BIN)
 	./$(TEST_BIN)
 
+# Sanitizer build: make sanitize
+.PHONY: sanitize
+sanitize: CFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer
+sanitize: clean $(TEST_BIN)
+	./$(TEST_BIN)
+
+# Valgrind: make valgrind
+.PHONY: valgrind
+valgrind: $(TEST_BIN)
+	valgrind --leak-check=full --show-leak-kinds=all --error-exitcode=1 ./$(TEST_BIN)
+
+# CodeChecker: make check
+.PHONY: check
+check:
+	rm -rf .codechecker
+	mkdir -p .codechecker
+	CodeChecker log -b "make -B" -o .codechecker/compile_commands.json
+	CodeChecker analyze .codechecker/compile_commands.json -o .codechecker/reports
+	CodeChecker parse .codechecker/reports
+
 clean:
 	rm -f *.o tests/*.o
 	rm -f libcsvs.a $(TEST_BIN)
+	rm -rf .codechecker

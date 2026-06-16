@@ -96,7 +96,7 @@ cJSON *csvs_entry_to_json(const csvs_entry *e)
         char keybuf[64];
         const char *key;
         if (e->prose[i].lang) {
-            snprintf(keybuf, sizeof(keybuf), "@%s", e->prose[i].lang);
+            (void)snprintf(keybuf, sizeof(keybuf), "@%s", e->prose[i].lang);
             key = keybuf;
         } else {
             key = "@";

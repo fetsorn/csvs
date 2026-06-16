@@ -46,9 +46,14 @@ csvs_tablet_plan *csvs_plan_build(const csvs_schema *s, const csvs_entry *q,
             csvs_tablet_plan plan;
             memset(&plan, 0, sizeof(plan));
 
-            plan.filename = malloc(strlen(binfo->trunks[t]) + 1 +
-                                   strlen(branch) + 4 + 1);
-            sprintf(plan.filename, "%s-%s.csv", binfo->trunks[t], branch);
+            size_t flen = strlen(binfo->trunks[t]) + 1 +
+                          strlen(branch) + 4 + 1;
+            plan.filename = malloc(flen);
+            if (!plan.filename) {
+                (void)fprintf(stderr, "csvs: out of memory\n");
+                abort();
+            }
+            (void)sprintf(plan.filename, "%s-%s.csv", binfo->trunks[t], branch);
 
             plan.thing = csvs_strdup(branch);
             plan.trait_ = csvs_strdup(binfo->trunks[t]);
@@ -78,7 +83,7 @@ static csvs_entry build_tablet(const char *dir,
                                csvs_entry entry)
 {
     char path[1024];
-    snprintf(path, sizeof(path), "%s/%s", dir, tablet->filename);
+    (void)snprintf(path, sizeof(path), "%s/%s", dir, tablet->filename);
 
     csvs_groups gs = csvs_read_groups(path);
     if (gs.ngroups == 0) return entry;

@@ -80,8 +80,17 @@ int csvs_parse_line(const char *line, size_t len,
     parse_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));
 
-    csv_parse(&p, line, len, cb_field, cb_row, &ctx);
-    csv_fini(&p, cb_field, cb_row, &ctx);
+    size_t parsed = csv_parse(&p, line, len, cb_field, cb_row, &ctx);
+    if (parsed != len) {
+        csvs_set_error("csv_parse: %s", csv_strerror(csv_error(&p)));
+        csv_free(&p);
+        free(ctx.fields[0]);
+        free(ctx.fields[1]);
+        *key_out = csvs_strdup("");
+        *val_out = csvs_strdup("");
+        return -1;
+    }
+    (void)csv_fini(&p, cb_field, cb_row, &ctx);
     csv_free(&p);
 
     *key_out = ctx.fields[0] ? ctx.fields[0] : csvs_strdup("");
@@ -96,40 +105,41 @@ int csvs_write_line(FILE *fp, const char *key, const char *value)
     /* Escape newlines first */
     char *ek = csvs_escape_newline(key);
     char *ev = csvs_escape_newline(value);
+    int err = 0;
 
     /* Check if field needs quoting (contains comma, quote, or newline) */
     int kq = ek && (strchr(ek, ',') || strchr(ek, '"') || strchr(ek, '\n'));
     int vq = ev && (strchr(ev, ',') || strchr(ev, '"') || strchr(ev, '\n'));
 
     if (kq) {
-        fputc('"', fp);
-        for (const char *p = ek; *p; p++) {
-            if (*p == '"') fputc('"', fp);
-            fputc(*p, fp);
+        if (fputc('"', fp) == EOF) err = 1;
+        for (const char *p = ek; *p && !err; p++) {
+            if (*p == '"') { if (fputc('"', fp) == EOF) err = 1; }
+            if (fputc(*p, fp) == EOF) err = 1;
         }
-        fputc('"', fp);
+        if (fputc('"', fp) == EOF) err = 1;
     } else {
-        fputs(ek ? ek : "", fp);
+        if (fputs(ek ? ek : "", fp) == EOF) err = 1;
     }
 
-    fputc(',', fp);
+    if (fputc(',', fp) == EOF) err = 1;
 
     if (vq) {
-        fputc('"', fp);
-        for (const char *p = ev; *p; p++) {
-            if (*p == '"') fputc('"', fp);
-            fputc(*p, fp);
+        if (fputc('"', fp) == EOF) err = 1;
+        for (const char *p = ev; *p && !err; p++) {
+            if (*p == '"') { if (fputc('"', fp) == EOF) err = 1; }
+            if (fputc(*p, fp) == EOF) err = 1;
         }
-        fputc('"', fp);
+        if (fputc('"', fp) == EOF) err = 1;
     } else {
-        fputs(ev ? ev : "", fp);
+        if (fputs(ev ? ev : "", fp) == EOF) err = 1;
     }
 
-    fputc('\n', fp);
+    if (fputc('\n', fp) == EOF) err = 1;
 
     free(ek);
     free(ev);
-    return 0;
+    return err ? -1 : 0;
 }
 
 /* ── File helpers ────────────────────────────────────────────────── */
@@ -138,9 +148,10 @@ int csvs_file_is_empty(const char *path)
 {
     FILE *f = fopen(path, "r");
     if (!f) return 1;
-    fseek(f, 0, SEEK_END);
+    if (fseek(f, 0, SEEK_END) != 0) { (void)fclose(f); return 1; }
     long sz = ftell(f);
-    fclose(f);
+    if (sz < 0) { (void)fclose(f); return 1; }
+    (void)fclose(f);
     return sz == 0;
 }
 
@@ -228,9 +239,13 @@ csvs_groups csvs_read_groups(const char *filepath)
         grp.nvalues = nvalues;
         grp.cap = values_cap;
         VEC_PUSH(gs.groups, gs.ngroups, gs.cap, grp);
+    } else {
+        /* no groups parsed — free any orphaned values */
+        for (size_t i = 0; i < nvalues; i++) free(current_values[i]);
+        free(current_values);
     }
 
     free(line_buf);
-    fclose(f);
+    (void)fclose(f);
     return gs;
 }

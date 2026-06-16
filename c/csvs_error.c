@@ -11,7 +11,7 @@ void csvs_set_error(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(csvs_errbuf, sizeof(csvs_errbuf), fmt, ap);
+    (void)vsnprintf(csvs_errbuf, sizeof(csvs_errbuf), fmt, ap);
     va_end(ap);
 }
 

@@ -25,8 +25,13 @@ csvs_tablet_plan *csvs_plan_options(const csvs_schema *s, const char *base,
         csvs_tablet_plan plan;
         memset(&plan, 0, sizeof(plan));
 
-        plan.filename = malloc(strlen(base) + 1 + strlen(b->leaves[i]) + 4 + 1);
-        sprintf(plan.filename, "%s-%s.csv", base, b->leaves[i]);
+        size_t flen = strlen(base) + 1 + strlen(b->leaves[i]) + 4 + 1;
+        plan.filename = malloc(flen);
+        if (!plan.filename) {
+            (void)fprintf(stderr, "csvs: out of memory\n");
+            abort();
+        }
+        (void)sprintf(plan.filename, "%s-%s.csv", base, b->leaves[i]);
 
         plan.thing = csvs_strdup(base);
         plan.trait_ = csvs_strdup(base);
@@ -46,8 +51,13 @@ csvs_tablet_plan *csvs_plan_options(const csvs_schema *s, const char *base,
         csvs_tablet_plan plan;
         memset(&plan, 0, sizeof(plan));
 
-        plan.filename = malloc(strlen(b->trunks[i]) + 1 + strlen(base) + 4 + 1);
-        sprintf(plan.filename, "%s-%s.csv", b->trunks[i], base);
+        size_t flen = strlen(b->trunks[i]) + 1 + strlen(base) + 4 + 1;
+        plan.filename = malloc(flen);
+        if (!plan.filename) {
+            (void)fprintf(stderr, "csvs: out of memory\n");
+            abort();
+        }
+        (void)sprintf(plan.filename, "%s-%s.csv", b->trunks[i], base);
 
         plan.thing = csvs_strdup(base);
         plan.trait_ = csvs_strdup(base);
@@ -117,7 +127,7 @@ csvs_entry *csvs_option_execute(csvs_dataset *ds, const csvs_entry *query,
         const csvs_tablet_plan *tablet = &strategy[ti];
 
         char path[1024];
-        snprintf(path, sizeof(path), "%s/%s", ds->dir, tablet->filename);
+        (void)snprintf(path, sizeof(path), "%s/%s", ds->dir, tablet->filename);
 
         csvs_groups gs = csvs_read_groups(path);
 

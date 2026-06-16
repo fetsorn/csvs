@@ -86,7 +86,11 @@ csvs_tablet_plan *csvs_plan_query(const csvs_schema *s, const csvs_entry *q,
         size_t tlen = strlen(trunk);
         size_t blen = strlen(branches[i]);
         plan.filename = malloc(tlen + 1 + blen + 4 + 1);
-        sprintf(plan.filename, "%s-%s.csv", trunk, branches[i]);
+        if (!plan.filename) {
+            (void)fprintf(stderr, "csvs: out of memory\n");
+            abort();
+        }
+        (void)sprintf(plan.filename, "%s-%s.csv", trunk, branches[i]);
 
         plan.thing = csvs_strdup(trunk);
         plan.trait_ = csvs_strdup(branches[i]);
@@ -329,7 +333,7 @@ csvs_entry *csvs_query_execute(csvs_dataset *ds, const csvs_entry *query,
         if (!initialized[counter]) {
             /* Load groups for this tablet */
             char path[1024];
-            snprintf(path, sizeof(path), "%s/%s", ds->dir, strategy[counter].filename);
+            (void)snprintf(path, sizeof(path), "%s/%s", ds->dir, strategy[counter].filename);
 
             struct stat st;
             int file_exists = stat(path, &st) == 0;

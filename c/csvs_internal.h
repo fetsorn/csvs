@@ -15,7 +15,8 @@
 
 /* Thread-local error buffer */
 #define CSVS_ERRBUF_SIZE 512
-void csvs_set_error(const char *fmt, ...);
+void csvs_set_error(const char *fmt, ...)
+    __attribute__((format(printf, 1, 2)));
 
 /* ── String helpers ───────────────────────────────────────────────── */
 
@@ -50,7 +51,10 @@ static inline char *csvs_strndup(const char *s, size_t n)
     if ((len) >= (cap)) {                               \
         size_t _nc = (cap) ? (cap) * 2 : 4;            \
         void *_np = realloc((arr), _nc * sizeof(*(arr))); \
-        if (!_np) { csvs_set_error("out of memory"); break; } \
+        if (!_np) {                                     \
+            (void)fprintf(stderr, "csvs: out of memory\n"); \
+            abort();                                    \
+        }                                               \
         (arr) = _np;                                    \
         (cap) = _nc;                                    \
     }                                                   \

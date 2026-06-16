@@ -12,7 +12,7 @@ csvs_dataset *csvs_open(const char *dir)
     char path[1024];
 
     /* Check for .csvs.csv in dir */
-    snprintf(path, sizeof(path), "%s/.csvs.csv", dir);
+    (void)snprintf(path, sizeof(path), "%s/.csvs.csv", dir);
     struct stat st;
     if (stat(path, &st) == 0) {
         csvs_dataset *ds = calloc(1, sizeof(csvs_dataset));
@@ -22,8 +22,8 @@ csvs_dataset *csvs_open(const char *dir)
 
     /* Check for csvs/ subdirectory */
     char nested[1024];
-    snprintf(nested, sizeof(nested), "%s/csvs", dir);
-    snprintf(path, sizeof(path), "%s/csvs/.csvs.csv", dir);
+    (void)snprintf(nested, sizeof(nested), "%s/csvs", dir);
+    (void)snprintf(path, sizeof(path), "%s/csvs/.csvs.csv", dir);
     if (stat(path, &st) == 0) {
         csvs_dataset *ds = calloc(1, sizeof(csvs_dataset));
         ds->dir = csvs_strdup(nested);
@@ -54,7 +54,7 @@ csvs_entry csvs_select_schema_record(const char *dir)
     csvs_entry e = csvs_entry_new("_");
 
     char path[1024];
-    snprintf(path, sizeof(path), "%s/_-_.csv", dir);
+    (void)snprintf(path, sizeof(path), "%s/_-_.csv", dir);
 
     csvs_groups gs = csvs_read_groups(path);
 
@@ -80,7 +80,7 @@ csvs_entry csvs_select_schema_record(const char *dir)
 int csvs_update_schema_record(const char *dir, const csvs_entry *query)
 {
     char path[1024];
-    snprintf(path, sizeof(path), "%s/_-_.csv", dir);
+    (void)snprintf(path, sizeof(path), "%s/_-_.csv", dir);
 
     /* Collect all trunk-leaf pairs as lines */
     typedef struct { char *key; char *val; } kv;
@@ -117,12 +117,18 @@ int csvs_update_schema_record(const char *dir, const csvs_entry *query)
         return -1;
     }
 
-    for (size_t i = 0; i < nlines; i++)
-        csvs_write_line(fp, lines[i].key, lines[i].val);
+    int werr = 0;
+    for (size_t i = 0; i < nlines; i++) {
+        if (csvs_write_line(fp, lines[i].key, lines[i].val) != 0)
+            werr = 1;
+    }
 
     for (size_t i = 0; i < nlines; i++) { free(lines[i].key); free(lines[i].val); }
     free(lines);
-    fclose(fp);
+    if (fclose(fp) != 0 || werr) {
+        csvs_set_error("write error on %s", path);
+        return -1;
+    }
     return 0;
 }
 
