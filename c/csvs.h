@@ -3,13 +3,14 @@
  * Public API header
  *
  * Copyright (c) 2026 Anton Davydov
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: LGPL-3.0
  */
 
 #ifndef CSVS_H
 #define CSVS_H
 
 #include <stddef.h>
+#include <cJSON.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -90,6 +91,10 @@ csvs_entry  csvs_entry_new(const char *base);
 csvs_entry  csvs_entry_clone(const csvs_entry *e);
 void        csvs_entry_free(csvs_entry *e);
 
+/* JSON conversion (SON format) */
+csvs_entry  csvs_entry_from_json(const cJSON *j);
+cJSON      *csvs_entry_to_json(const csvs_entry *e);
+
 /* Leaf manipulation on an entry (sorted insert / binary search find) */
 csvs_leaf  *csvs_entry_find_leaf(const csvs_entry *e, const char *name);
 csvs_leaf  *csvs_entry_add_leaf(csvs_entry *e, const char *name);
@@ -107,6 +112,10 @@ csvs_grain  csvs_grain_new(const char *base, const char *base_value,
 csvs_grain  csvs_grain_clone(const csvs_grain *g);
 void        csvs_grain_free(csvs_grain *g);
 
+/* JSON conversion (SON format) */
+csvs_grain  csvs_grain_from_json(const cJSON *j);
+cJSON      *csvs_grain_to_json(const csvs_grain *g);
+
 /* ── Mow / Sow (pure, no I/O) ────────────────────────────────────── */
 
 csvs_grain *csvs_mow(const csvs_entry *e, const char *trait_,
@@ -119,6 +128,9 @@ csvs_entry  csvs_sow(const csvs_entry *e, const csvs_grain *g,
 csvs_schema  csvs_schema_new(void);
 csvs_schema  csvs_schema_clone(const csvs_schema *s);
 void         csvs_schema_free(csvs_schema *s);
+
+/* JSON conversion */
+cJSON       *csvs_schema_to_json(const csvs_schema *s);
 csvs_branch *csvs_schema_find(const csvs_schema *s, const char *name);
 csvs_branch *csvs_schema_add(csvs_schema *s, const char *name);
 

@@ -1,135 +1,33 @@
 /*
- * csvs test harness — reads JSON test cases from ../test/ and runs them
+ * csvs test harness — reads JSON test cases from csvs-test and runs them
  * against libcsvs.
- *
- * Phase 1: tests for pure functions (entry, grain, schema, mow, sow,
- * to_schema, nesting_level, sort_ascending, sort_descending).
  */
 
 #include "csvs.h"
-#include "cJSON.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* Path to csvs-test data */
-#ifndef TEST_DIR
-#define TEST_DIR "../test"
-#endif
+/* csvs-test fixture loader */
+#define CSVS_TEST_DIR "../test"
+#include "csvs_test.h"
 
 static int tests_run    = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-/* ── File helpers ─────────────────────────────────────────────────── */
+#define RUN_TEST(name, expr) do {                                    \
+    tests_run++;                                                     \
+    if (expr) {                                                      \
+        tests_passed++;                                              \
+    } else {                                                         \
+        tests_failed++;                                              \
+        fprintf(stderr, "  FAIL: %s\n", name);                      \
+    }                                                                \
+} while (0)
 
-static char *read_file(const char *path)
-{
-    FILE *f = fopen(path, "rb");
-    if (!f) { fprintf(stderr, "cannot open %s\n", path); return NULL; }
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char *buf = malloc(len + 1);
-    if (buf) { fread(buf, 1, len, f); buf[len] = '\0'; }
-    fclose(f);
-    return buf;
-}
-
-static cJSON *load_json(const char *dir, const char *subdir, const char *name,
-                        const char *ext)
-{
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/%s/%s%s", dir, subdir, name, ext);
-    char *text = read_file(path);
-    if (!text) return NULL;
-    cJSON *j = cJSON_Parse(text);
-    free(text);
-    if (!j) fprintf(stderr, "JSON parse error in %s\n", path);
-    return j;
-}
-
-static cJSON *load_record(const char *name)
-{
-    return load_json(TEST_DIR, "records", name, ".json");
-}
-
-static cJSON *load_testcase(const char *name)
-{
-    return load_json(TEST_DIR, "cases", name, ".json");
-}
-
-/* ── SON JSON -> csvs_entry conversion ────────────────────────────── */
-/* SON format: { "_": "base", "base": "value", "leaf": "val", ... }  */
-
-static csvs_entry json_to_entry(const cJSON *j)
-{
-    csvs_entry e;
-    memset(&e, 0, sizeof(e));
-
-    if (!cJSON_IsObject(j)) {
-        e.base = strdup("");
-        return e;
-    }
-
-    cJSON *base_j = cJSON_GetObjectItemCaseSensitive(j, "_");
-    const char *base = (base_j && cJSON_IsString(base_j)) ? base_j->valuestring : "";
-    e.base = strdup(base);
-
-    cJSON *bv_j = cJSON_GetObjectItemCaseSensitive(j, base);
-    if (bv_j && cJSON_IsString(bv_j))
-        e.base_value = strdup(bv_j->valuestring);
-
-    cJSON *lv_j = cJSON_GetObjectItemCaseSensitive(j, "__");
-    if (lv_j && cJSON_IsString(lv_j))
-        e.leader_value = strdup(lv_j->valuestring);
-
-    cJSON *child;
-    cJSON_ArrayForEach(child, j) {
-        const char *key = child->string;
-        if (!key) continue;
-        if (strcmp(key, "_") == 0) continue;
-        if (strcmp(key, base) == 0) continue;
-        if (strcmp(key, "__") == 0) continue;
-
-        /* prose keys */
-        if (key[0] == '@') {
-            if (cJSON_IsString(child)) {
-                const char *lang = (strlen(key) == 1) ? NULL : key + 1;
-                csvs_entry_add_prose(&e, lang, child->valuestring);
-            }
-            continue;
-        }
-
-        csvs_leaf *lf = csvs_entry_add_leaf(&e, key);
-
-        if (cJSON_IsString(child)) {
-            csvs_entry ce = csvs_entry_new(key);
-            ce.base_value = strdup(child->valuestring);
-            csvs_leaf_push(lf, ce);
-        } else if (cJSON_IsArray(child)) {
-            cJSON *item;
-            cJSON_ArrayForEach(item, child) {
-                if (cJSON_IsString(item)) {
-                    csvs_entry ce = csvs_entry_new(key);
-                    ce.base_value = strdup(item->valuestring);
-                    csvs_leaf_push(lf, ce);
-                } else if (cJSON_IsObject(item)) {
-                    csvs_entry ce = json_to_entry(item);
-                    csvs_leaf_push(lf, ce);
-                }
-            }
-        } else if (cJSON_IsObject(child)) {
-            csvs_entry ce = json_to_entry(child);
-            csvs_leaf_push(lf, ce);
-        }
-    }
-
-    return e;
-}
-
-/* ── Entry struct JSON -> csvs_entry conversion ───────────────────── */
-/* Struct format: { "base": "x", "base_value": "y", "leaves": { "k": [...] } } */
+/* ── Entry struct JSON → csvs_entry ──────────────────────────────── */
+/* This format is specific to test cases, not SON, so it stays here. */
 
 static csvs_entry struct_json_to_entry(const cJSON *j)
 {
@@ -168,171 +66,12 @@ static csvs_entry struct_json_to_entry(const cJSON *j)
     return e;
 }
 
-/* ── Entry -> SON JSON conversion (for comparison) ────────────────── */
-
-static cJSON *entry_to_json(const csvs_entry *e)
-{
-    cJSON *j = cJSON_CreateObject();
-
-    cJSON_AddStringToObject(j, "_", e->base ? e->base : "");
-
-    if (e->base_value)
-        cJSON_AddStringToObject(j, e->base, e->base_value);
-
-    if (e->leader_value)
-        cJSON_AddStringToObject(j, "__", e->leader_value);
-
-    /* prose */
-    for (size_t i = 0; i < e->nprose; i++) {
-        char keybuf[64];
-        const char *key;
-        if (e->prose[i].lang) {
-            snprintf(keybuf, sizeof(keybuf), "@%s", e->prose[i].lang);
-            key = keybuf;
-        } else {
-            key = "@";
-        }
-        cJSON_AddStringToObject(j, key, e->prose[i].content);
-    }
-
-    /* leaves */
-    for (size_t i = 0; i < e->nleaves; i++) {
-        const csvs_leaf *lf = &e->leaves[i];
-        if (lf->nentries == 0) continue;
-
-        if (lf->nentries == 1) {
-            const csvs_entry *child = &lf->entries[0];
-            if (child->nleaves == 0 && child->nprose == 0) {
-                if (child->base_value)
-                    cJSON_AddStringToObject(j, lf->name, child->base_value);
-            } else {
-                cJSON_AddItemToObject(j, lf->name, entry_to_json(child));
-            }
-        } else {
-            cJSON *arr = cJSON_CreateArray();
-            for (size_t k = 0; k < lf->nentries; k++) {
-                const csvs_entry *child = &lf->entries[k];
-                if (child->nleaves == 0 && child->nprose == 0) {
-                    if (child->base_value)
-                        cJSON_AddItemToArray(arr, cJSON_CreateString(child->base_value));
-                } else {
-                    cJSON_AddItemToArray(arr, entry_to_json(child));
-                }
-            }
-            cJSON_AddItemToObject(j, lf->name, arr);
-        }
-    }
-
-    return j;
-}
-
-/* ── SON record -> csvs_grain conversion ──────────────────────────── */
-/* A grain in SON: { "_": "base", "base": "bv", "leaf": "lv" }
- * base = "_" field, base_value = field matching base name,
- * leaf = other non-"_" key, leaf_value = its value */
-
-static csvs_grain son_to_grain(const cJSON *j)
-{
-    csvs_grain g;
-    memset(&g, 0, sizeof(g));
-
-    cJSON *base_j = cJSON_GetObjectItemCaseSensitive(j, "_");
-    if (!base_j || !cJSON_IsString(base_j)) return g;
-    g.base = strdup(base_j->valuestring);
-
-    cJSON *bv_j = cJSON_GetObjectItemCaseSensitive(j, g.base);
-    if (bv_j && cJSON_IsString(bv_j))
-        g.base_value = strdup(bv_j->valuestring);
-
-    /* find the leaf key: not "_" and not base */
-    cJSON *child;
-    cJSON_ArrayForEach(child, j) {
-        if (!child->string) continue;
-        if (strcmp(child->string, "_") == 0) continue;
-        if (strcmp(child->string, g.base) == 0) continue;
-        g.leaf = strdup(child->string);
-        if (cJSON_IsString(child))
-            g.leaf_value = strdup(child->valuestring);
-        break;
-    }
-
-    return g;
-}
-
-static int grains_equal(const csvs_grain *a, const csvs_grain *b)
-{
-    if (strcmp(a->base, b->base) != 0) return 0;
-    if ((a->base_value == NULL) != (b->base_value == NULL)) return 0;
-    if (a->base_value && strcmp(a->base_value, b->base_value) != 0) return 0;
-    if ((a->leaf == NULL) != (b->leaf == NULL)) return 0;
-    if (a->leaf && strcmp(a->leaf, b->leaf) != 0) return 0;
-    if ((a->leaf_value == NULL) != (b->leaf_value == NULL)) return 0;
-    if (a->leaf_value && strcmp(a->leaf_value, b->leaf_value) != 0) return 0;
-    return 1;
-}
-
-/* ── Grain -> SON JSON conversion (for comparison) ────────────────── */
-
-static cJSON *grain_to_json(const csvs_grain *g)
-{
-    cJSON *j = cJSON_CreateObject();
-    cJSON_AddStringToObject(j, "_", g->base ? g->base : "");
-    if (g->base_value)
-        cJSON_AddStringToObject(j, g->base, g->base_value);
-    if (g->leaf && g->leaf_value)
-        cJSON_AddStringToObject(j, g->leaf, g->leaf_value);
-    return j;
-}
-
-/* ── JSON comparison ──────────────────────────────────────────────── */
-
-static int json_equal(const cJSON *a, const cJSON *b)
-{
-    return cJSON_Compare(a, b, 1);
-}
-
-/* ── Schema -> JSON ───────────────────────────────────────────────── */
-
-static cJSON *schema_to_json(const csvs_schema *s)
-{
-    cJSON *j = cJSON_CreateObject();
-    for (size_t i = 0; i < s->nbranches; i++) {
-        const csvs_branch *b = &s->branches[i];
-        cJSON *obj = cJSON_CreateObject();
-
-        cJSON *trunks = cJSON_CreateArray();
-        for (size_t k = 0; k < b->ntrunks; k++)
-            cJSON_AddItemToArray(trunks, cJSON_CreateString(b->trunks[k]));
-        cJSON_AddItemToObject(obj, "trunks", trunks);
-
-        cJSON *leaves = cJSON_CreateArray();
-        for (size_t k = 0; k < b->nleaves; k++)
-            cJSON_AddItemToArray(leaves, cJSON_CreateString(b->leaves[k]));
-        cJSON_AddItemToObject(obj, "leaves", leaves);
-
-        cJSON_AddItemToObject(j, b->name, obj);
-    }
-    return j;
-}
-
-/* ── Test runner ──────────────────────────────────────────────────── */
-
-#define RUN_TEST(name, expr) do {                                    \
-    tests_run++;                                                     \
-    if (expr) {                                                      \
-        tests_passed++;                                              \
-    } else {                                                         \
-        tests_failed++;                                              \
-        fprintf(stderr, "  FAIL: %s\n", name);                      \
-    }                                                                \
-} while (0)
-
 /* ── Test: entry.json ─────────────────────────────────────────────── */
 
 static void test_entry(void)
 {
     printf("entry...\n");
-    cJSON *cases = load_testcase("entry");
+    cJSON *cases = csvs_test_load_testcase("entry");
     if (!cases) return;
 
     cJSON *tc;
@@ -340,11 +79,10 @@ static void test_entry(void)
         cJSON *value_j = cJSON_GetObjectItemCaseSensitive(tc, "value");
         cJSON *entry_j = cJSON_GetObjectItemCaseSensitive(tc, "entry");
 
-        /* Parse SON value as entry, convert back to JSON, check roundtrip */
-        csvs_entry value = json_to_entry(value_j);
-        cJSON *roundtrip_j = entry_to_json(&value);
+        csvs_entry value = csvs_entry_from_json(value_j);
+        cJSON *roundtrip_j = csvs_entry_to_json(&value);
 
-        int ok = json_equal(roundtrip_j, value_j);
+        int ok = csvs_test_json_equal(roundtrip_j, value_j);
         if (!ok) {
             char *got = cJSON_PrintUnformatted(roundtrip_j);
             char *exp = cJSON_PrintUnformatted(value_j);
@@ -354,7 +92,6 @@ static void test_entry(void)
         }
         RUN_TEST("entry roundtrip", ok);
 
-        /* Check struct fields match expected */
         cJSON *exp_base_j = cJSON_GetObjectItemCaseSensitive(entry_j, "base");
         if (exp_base_j && cJSON_IsString(exp_base_j)) {
             int base_ok = strcmp(value.base, exp_base_j->valuestring) == 0;
@@ -379,7 +116,7 @@ static void test_entry(void)
 static void test_grain(void)
 {
     printf("grain...\n");
-    cJSON *cases = load_testcase("grain");
+    cJSON *cases = csvs_test_load_testcase("grain");
     if (!cases) return;
 
     cJSON *tc;
@@ -387,9 +124,8 @@ static void test_grain(void)
         cJSON *value_j = cJSON_GetObjectItemCaseSensitive(tc, "value");
         cJSON *grain_j = cJSON_GetObjectItemCaseSensitive(tc, "grain");
 
-        csvs_entry value = json_to_entry(value_j);
+        csvs_entry value = csvs_entry_from_json(value_j);
 
-        /* Expected grain in struct format: { base, base_value, leaf, leaf_value } */
         cJSON *gb_j = cJSON_GetObjectItemCaseSensitive(grain_j, "base");
         cJSON *gbv_j = cJSON_GetObjectItemCaseSensitive(grain_j, "base_value");
         cJSON *gl_j = cJSON_GetObjectItemCaseSensitive(grain_j, "leaf");
@@ -400,7 +136,6 @@ static void test_grain(void)
         const char *gl = gl_j ? gl_j->valuestring : "";
         const char *glv = (glv_j && cJSON_IsString(glv_j)) ? glv_j->valuestring : NULL;
 
-        /* mow(entry, trait_=base, thing=leaf) should produce this grain */
         size_t ngrains;
         csvs_grain *grains = csvs_mow(&value, gb, gl, &ngrains);
 
@@ -408,7 +143,12 @@ static void test_grain(void)
 
         int found = 0;
         for (size_t i = 0; i < ngrains; i++) {
-            if (grains_equal(&grains[i], &expected)) { found = 1; break; }
+            cJSON *got_j = csvs_grain_to_json(&grains[i]);
+            cJSON *exp_j = csvs_grain_to_json(&expected);
+            if (csvs_test_json_equal(got_j, exp_j)) found = 1;
+            cJSON_Delete(got_j);
+            cJSON_Delete(exp_j);
+            if (found) break;
         }
 
         if (!found) {
@@ -431,7 +171,7 @@ static void test_grain(void)
 static void test_to_schema(void)
 {
     printf("to_schema...\n");
-    cJSON *cases = load_testcase("to_schema");
+    cJSON *cases = csvs_test_load_testcase("to_schema");
     if (!cases) return;
 
     cJSON *tc;
@@ -440,8 +180,8 @@ static void test_to_schema(void)
         const char *initial_name = cJSON_GetObjectItemCaseSensitive(tc, "initial")->valuestring;
         const char *expected_name = cJSON_GetObjectItemCaseSensitive(tc, "expected")->valuestring;
 
-        cJSON *initial_j = load_record(initial_name);
-        cJSON *expected_j = load_record(expected_name);
+        cJSON *initial_j = csvs_test_load_record(initial_name);
+        cJSON *expected_j = csvs_test_load_record(expected_name);
         if (!initial_j || !expected_j) {
             if (initial_j) cJSON_Delete(initial_j);
             if (expected_j) cJSON_Delete(expected_j);
@@ -449,12 +189,12 @@ static void test_to_schema(void)
             continue;
         }
 
-        csvs_entry initial = json_to_entry(initial_j);
+        csvs_entry initial = csvs_entry_from_json(initial_j);
         csvs_schema schema = csvs_to_schema(&initial);
 
-        cJSON *schema_j = schema_to_json(&schema);
+        cJSON *schema_j = csvs_schema_to_json(&schema);
 
-        int ok = json_equal(schema_j, expected_j);
+        int ok = csvs_test_json_equal(schema_j, expected_j);
         if (!ok) {
             char *got = cJSON_PrintUnformatted(schema_j);
             char *exp = cJSON_PrintUnformatted(expected_j);
@@ -479,7 +219,7 @@ static void test_to_schema(void)
 static void test_schema(void)
 {
     printf("schema...\n");
-    cJSON *cases = load_testcase("schema");
+    cJSON *cases = csvs_test_load_testcase("schema");
     if (!cases) return;
 
     cJSON *tc;
@@ -487,13 +227,12 @@ static void test_schema(void)
         cJSON *entry_j = cJSON_GetObjectItemCaseSensitive(tc, "entry");
         cJSON *schema_j = cJSON_GetObjectItemCaseSensitive(tc, "schema");
 
-        /* entry is in Entry struct format, not SON */
         csvs_entry entry = struct_json_to_entry(entry_j);
         csvs_schema schema = csvs_to_schema(&entry);
 
-        cJSON *got_j = schema_to_json(&schema);
+        cJSON *got_j = csvs_schema_to_json(&schema);
 
-        int ok = json_equal(got_j, schema_j);
+        int ok = csvs_test_json_equal(got_j, schema_j);
         if (!ok) {
             char *got = cJSON_PrintUnformatted(got_j);
             char *exp = cJSON_PrintUnformatted(schema_j);
@@ -516,7 +255,7 @@ static void test_schema(void)
 static void test_get_nesting_level(void)
 {
     printf("get_nesting_level...\n");
-    cJSON *cases = load_testcase("get_nesting_level");
+    cJSON *cases = csvs_test_load_testcase("get_nesting_level");
     if (!cases) return;
 
     cJSON *tc;
@@ -525,8 +264,8 @@ static void test_get_nesting_level(void)
         const char *branch = cJSON_GetObjectItemCaseSensitive(tc, "initial")->valuestring;
         int expected = (int)cJSON_GetObjectItemCaseSensitive(tc, "expected")->valuedouble;
 
-        cJSON *schema_j = load_record(schema_name);
-        csvs_entry schema_entry = json_to_entry(schema_j);
+        cJSON *schema_j = csvs_test_load_record(schema_name);
+        csvs_entry schema_entry = csvs_entry_from_json(schema_j);
         csvs_schema schema = csvs_to_schema(&schema_entry);
 
         int got = csvs_nesting_level(&schema, branch);
@@ -549,7 +288,7 @@ static void test_get_nesting_level(void)
 static void test_sort(const char *casename, int ascending)
 {
     printf("%s...\n", casename);
-    cJSON *cases = load_testcase(casename);
+    cJSON *cases = csvs_test_load_testcase(casename);
     if (!cases) return;
 
     cJSON *tc;
@@ -558,8 +297,8 @@ static void test_sort(const char *casename, int ascending)
         cJSON *initial_j = cJSON_GetObjectItemCaseSensitive(tc, "initial");
         cJSON *expected_j = cJSON_GetObjectItemCaseSensitive(tc, "expected");
 
-        cJSON *schema_j = load_record(schema_name);
-        csvs_entry schema_entry = json_to_entry(schema_j);
+        cJSON *schema_j = csvs_test_load_record(schema_name);
+        csvs_entry schema_entry = csvs_entry_from_json(schema_j);
         csvs_schema schema = csvs_to_schema(&schema_entry);
 
         int n = cJSON_GetArraySize(initial_j);
@@ -598,7 +337,7 @@ static void test_sort(const char *casename, int ascending)
 static void test_mow(void)
 {
     printf("mow...\n");
-    cJSON *cases = load_testcase("mow");
+    cJSON *cases = csvs_test_load_testcase("mow");
     if (!cases) return;
 
     cJSON *tc;
@@ -609,25 +348,24 @@ static void test_mow(void)
         const char *branch = cJSON_GetObjectItemCaseSensitive(tc, "branch")->valuestring;
         cJSON *expected_names = cJSON_GetObjectItemCaseSensitive(tc, "expected");
 
-        cJSON *initial_j = load_record(initial_name);
-        csvs_entry initial = json_to_entry(initial_j);
+        cJSON *initial_j = csvs_test_load_record(initial_name);
+        csvs_entry initial = csvs_entry_from_json(initial_j);
 
         size_t ngrains;
         csvs_grain *grains = csvs_mow(&initial, trunk, branch, &ngrains);
 
         int expected_n = cJSON_GetArraySize(expected_names);
 
-        /* Load expected grains from SON records, compare as JSON */
         int ok = 1;
         for (int i = 0; i < expected_n; i++) {
             const char *exp_name = cJSON_GetArrayItem(expected_names, i)->valuestring;
-            cJSON *exp_j = load_record(exp_name);
+            cJSON *exp_j = csvs_test_load_record(exp_name);
             if (!exp_j) { ok = 0; continue; }
 
             int found = 0;
             for (size_t g = 0; g < ngrains; g++) {
-                cJSON *got_j = grain_to_json(&grains[g]);
-                if (json_equal(got_j, exp_j)) { found = 1; cJSON_Delete(got_j); break; }
+                cJSON *got_j = csvs_grain_to_json(&grains[g]);
+                if (csvs_test_json_equal(got_j, exp_j)) { found = 1; cJSON_Delete(got_j); break; }
                 cJSON_Delete(got_j);
             }
             if (!found) {
@@ -641,7 +379,6 @@ static void test_mow(void)
             cJSON_Delete(exp_j);
         }
 
-        /* Also check count */
         if ((int)ngrains != expected_n) {
             fprintf(stderr, "    mow %s: got %zu grains, want %d\n",
                     name, ngrains, expected_n);
@@ -664,7 +401,7 @@ static void test_mow(void)
 static void test_sow(void)
 {
     printf("sow...\n");
-    cJSON *cases = load_testcase("sow");
+    cJSON *cases = csvs_test_load_testcase("sow");
     if (!cases) return;
 
     cJSON *tc;
@@ -676,20 +413,18 @@ static void test_sow(void)
         const char *branch = cJSON_GetObjectItemCaseSensitive(tc, "branch")->valuestring;
         const char *expected_name = cJSON_GetObjectItemCaseSensitive(tc, "expected")->valuestring;
 
-        cJSON *initial_j = load_record(initial_name);
-        cJSON *grain_j = load_record(grain_name);
-        cJSON *expected_j = load_record(expected_name);
+        cJSON *initial_j = csvs_test_load_record(initial_name);
+        cJSON *grain_j = csvs_test_load_record(grain_name);
+        cJSON *expected_j = csvs_test_load_record(expected_name);
 
-        csvs_entry initial = json_to_entry(initial_j);
-
-        /* Grain records are in SON format — convert via son_to_grain */
-        csvs_grain grain = son_to_grain(grain_j);
+        csvs_entry initial = csvs_entry_from_json(initial_j);
+        csvs_grain grain = csvs_grain_from_json(grain_j);
 
         csvs_entry result = csvs_sow(&initial, &grain, trunk, branch);
 
-        cJSON *result_j = entry_to_json(&result);
+        cJSON *result_j = csvs_entry_to_json(&result);
 
-        int ok = json_equal(result_j, expected_j);
+        int ok = csvs_test_json_equal(result_j, expected_j);
         if (!ok) {
             char *got = cJSON_PrintUnformatted(result_j);
             char *exp = cJSON_PrintUnformatted(expected_j);
@@ -716,7 +451,7 @@ static void test_sow(void)
 static void test_select(void)
 {
     printf("select...\n");
-    cJSON *cases = load_testcase("select");
+    cJSON *cases = csvs_test_load_testcase("select");
     if (!cases) return;
 
     cJSON *tc;
@@ -727,49 +462,39 @@ static void test_select(void)
         cJSON *query_names = cJSON_GetObjectItemCaseSensitive(tc, "query");
         cJSON *expected_names = cJSON_GetObjectItemCaseSensitive(tc, "expected");
 
-        /* Open dataset */
-        char dataset_path[1024];
-        snprintf(dataset_path, sizeof(dataset_path), "%s/datasets/%s",
-                 TEST_DIR, dataset_name);
-
-        csvs_dataset *ds = csvs_open(dataset_path);
+        csvs_dataset *ds = csvs_open(csvs_test_dataset_path(dataset_name));
         if (!ds) {
             fprintf(stderr, "    select %s: cannot open dataset %s\n",
-                    name, dataset_path);
+                    name, dataset_name);
             RUN_TEST(name, 0);
             continue;
         }
 
-        /* Load queries */
         int nqueries = cJSON_GetArraySize(query_names);
         csvs_entry *queries = malloc(nqueries * sizeof(csvs_entry));
         for (int i = 0; i < nqueries; i++) {
             const char *qname = cJSON_GetArrayItem(query_names, i)->valuestring;
-            cJSON *q_j = load_record(qname);
-            queries[i] = json_to_entry(q_j);
+            cJSON *q_j = csvs_test_load_record(qname);
+            queries[i] = csvs_entry_from_json(q_j);
             cJSON_Delete(q_j);
         }
 
-        /* Execute select */
         csvs_iter *it = csvs_select(ds, queries, nqueries, 0, 0);
 
-        /* Collect results */
         cJSON *got_arr = cJSON_CreateArray();
         const csvs_entry *result;
         while ((result = csvs_next(it)) != NULL) {
-            cJSON_AddItemToArray(got_arr, entry_to_json(result));
+            cJSON_AddItemToArray(got_arr, csvs_entry_to_json(result));
         }
 
-        /* Load expected */
         int nexpected = cJSON_GetArraySize(expected_names);
         cJSON *exp_arr = cJSON_CreateArray();
         for (int i = 0; i < nexpected; i++) {
             const char *ename = cJSON_GetArrayItem(expected_names, i)->valuestring;
-            cJSON *e_j = load_record(ename);
+            cJSON *e_j = csvs_test_load_record(ename);
             cJSON_AddItemToArray(exp_arr, e_j);
         }
 
-        /* Compare: each expected must be found in got */
         int ok = 1;
         int ngot = cJSON_GetArraySize(got_arr);
 
@@ -783,7 +508,7 @@ static void test_select(void)
             cJSON *exp = cJSON_GetArrayItem(exp_arr, i);
             int found = 0;
             for (int j = 0; j < ngot; j++) {
-                if (json_equal(cJSON_GetArrayItem(got_arr, j), exp)) {
+                if (csvs_test_json_equal(cJSON_GetArrayItem(got_arr, j), exp)) {
                     found = 1;
                     break;
                 }
@@ -792,7 +517,6 @@ static void test_select(void)
                 char *exp_s = cJSON_PrintUnformatted(exp);
                 fprintf(stderr, "    select %s: expected[%d] not found: %s\n",
                         name, i, exp_s);
-                /* Print what we got */
                 for (int j = 0; j < ngot; j++) {
                     char *got_s = cJSON_PrintUnformatted(cJSON_GetArrayItem(got_arr, j));
                     fprintf(stderr, "      got[%d]: %s\n", j, got_s);
@@ -821,33 +545,19 @@ static void test_select(void)
 static void test_init(void)
 {
     printf("init...\n");
-    cJSON *cases = load_testcase("init");
+    cJSON *cases = csvs_test_load_testcase("init");
     if (!cases) return;
 
-    /* init tests create directories, skip for now if datasets aren't writable */
-    /* For init, we just verify that opening existing datasets works */
     cJSON *tc;
     cJSON_ArrayForEach(tc, cases) {
         const char *name = cJSON_GetObjectItemCaseSensitive(tc, "name")->valuestring;
-        const char *initial = cJSON_GetObjectItemCaseSensitive(tc, "initial")->valuestring;
         const char *expected = cJSON_GetObjectItemCaseSensitive(tc, "expected")->valuestring;
 
-        char initial_path[1024];
-        snprintf(initial_path, sizeof(initial_path), "%s/datasets/%s",
-                 TEST_DIR, initial);
-
-        char expected_path[1024];
-        snprintf(expected_path, sizeof(expected_path), "%s/datasets/%s",
-                 TEST_DIR, expected);
-
-        /* For "initializes" test: check that an empty dir can become a dataset
-         * For "warns when exists": check that re-creating succeeds idempotently
-         * We test by verifying expected dataset can be opened */
-        csvs_dataset *ds = csvs_open(expected_path);
+        csvs_dataset *ds = csvs_open(csvs_test_dataset_path(expected));
         int ok = ds != NULL;
         if (!ok)
             fprintf(stderr, "    init %s: cannot open expected dataset %s\n",
-                    name, expected_path);
+                    name, expected);
         RUN_TEST(name, ok);
         csvs_close(ds);
     }
@@ -860,7 +570,7 @@ static void test_init(void)
 int main(void)
 {
     printf("csvs-test Phase 1-3\n");
-    printf("test dir: %s\n\n", TEST_DIR);
+    printf("test dir: %s\n\n", CSVS_TEST_DIR);
 
     test_entry();
     test_grain();
