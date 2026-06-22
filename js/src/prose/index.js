@@ -120,10 +120,9 @@ export async function searchProse(fs, dir, pattern, lang) {
     }
 
     // Filter by language tag
-    const langMatches =
-      lang === undefined || lang === null
-        ? fileLang === null
-        : fileLang === lang;
+    // "@" (lang=null) searches all prose regardless of tag;
+    // "@en" etc. matches only that specific language.
+    const langMatches = lang === null ? true : fileLang === lang;
 
     if (!langMatches) continue;
 
