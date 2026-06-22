@@ -121,8 +121,10 @@ impl ProseAddress {
                 None => (name_str.to_string(), None),
             };
 
+            // "@" (lang=None) searches all prose regardless of tag;
+            // "@en" etc. matches only that specific language.
             let lang_matches = match lang {
-                None => file_lang.is_none(),
+                None => true,
                 Some(l) => file_lang.as_deref() == Some(l),
             };
 
