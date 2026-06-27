@@ -1,5 +1,5 @@
 use assert_json_diff::{assert_json_matches_no_panic, CompareMode, Config};
-use csvs::{Entry, Grain, IntoValue, Result};
+use csvs::{Entry, Grain, Result};
 use csvs_test::{read_record, read_records, read_testcase};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,7 +23,7 @@ fn mow_test() -> Result<()> {
 
         let result: Vec<Grain> = entry.mow(&test.trunk, &test.branch);
 
-        let result_json: Vec<Value> = result.into_iter().map(|i| i.into_value()).collect();
+        let result_json: Vec<Value> = result.into_iter().map(|i| i.into()).collect();
 
         let expected_json: Vec<Value> = read_records(&test.expected);
 

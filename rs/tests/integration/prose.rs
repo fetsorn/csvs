@@ -1,135 +1,112 @@
 use assert_json_diff::{assert_json_matches_no_panic, Config, CompareMode};
 use temp_dir::TempDir;
-use serde_json::{json, Value};
+use serde_json::Value;
 use csvs::{
     Result,
-    Entry, IntoValue, Dataset
+    Entry, Dataset
 };
-use csvs_test::{read_record, read_records, copy};
+use csvs_test::{read_record, read_records, copy, read_testcase};
+use serde::{Deserialize, Serialize};
 use std::fs;
 
-#[tokio::test]
-async fn build_without_prose_flag() -> Result<()> {
-    let temp_path = TempDir::new()?;
-    copy("prose_default", temp_path.path());
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct ExpectedBlob {
+    path: String,
+    content: String,
+}
 
-    let query: Entry = read_record("query_prose_japan").try_into()?;
-    let dataset = Dataset::open(&temp_path.path().to_owned()).await?;
-    let entry = dataset.build_record(query).await?;
-    let entry_json = entry.into_value();
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct ProseTest {
+    name: String,
+    op: String,
+    initial: String,
+    query: Vec<String>,
+    #[serde(default)]
+    prose: Option<bool>,
+    #[serde(default)]
+    expected: Option<Vec<String>>,
+    #[serde(default)]
+    expected_blob: Option<ExpectedBlob>,
+    #[serde(default)]
+    expected_blobs: Option<Vec<ExpectedBlob>>,
+}
 
-    let expected_json = read_record("record_prose_japan_no_prose");
+fn check_blobs(temp_path: &std::path::Path, blobs: &[ExpectedBlob], test_name: &str) {
+    for blob in blobs {
+        let blob_path = temp_path.join(&blob.path);
+        assert!(blob_path.exists(), "{}: blob {} should be written", test_name, blob.path);
 
-    let r = assert_json_matches_no_panic(&entry_json, &expected_json, Config::new(CompareMode::Strict));
-    assert!(r.is_ok(), "build without prose flag should not include @ keys\n{:#?}\n{:#?}", entry_json, expected_json);
-
-    Ok(())
+        let content = fs::read_to_string(&blob_path)
+            .unwrap_or_else(|e| panic!("{}: failed to read {}: {}", test_name, blob.path, e));
+        assert_eq!(content, blob.content, "{}: blob {} content mismatch", test_name, blob.path);
+    }
 }
 
 #[tokio::test]
-async fn build_with_prose_flag() -> Result<()> {
-    let temp_path = TempDir::new()?;
-    copy("prose_default", temp_path.path());
+async fn prose_test() -> Result<()> {
+    let tests: Vec<ProseTest> = read_testcase("prose");
 
-    let query: Entry = read_record("query_prose_japan").try_into()?;
-    let dataset = Dataset::open(&temp_path.path().to_owned()).await?;
-    let entry = dataset.build_record_with_prose(query).await?;
-    let entry_json = entry.into_value();
+    for test in tests.iter() {
+        let temp_path = TempDir::new()?;
+        copy(&test.initial, temp_path.path());
 
-    let expected_json = read_record("record_prose_japan");
+        let queries: Vec<Entry> = test
+            .query
+            .iter()
+            .map(|q| read_record(q).try_into())
+            .collect::<Result<Vec<Entry>>>()?;
 
-    let r = assert_json_matches_no_panic(&entry_json, &expected_json, Config::new(CompareMode::Strict));
-    assert!(r.is_ok(), "build with prose flag should include @ keys\n{:#?}\n{:#?}", entry_json, expected_json);
+        let dataset = Dataset::open(&temp_path.path().to_owned()).await?;
 
-    Ok(())
-}
+        match test.op.as_str() {
+            "build" => {
+                let query = queries.into_iter().next().unwrap();
+                let entry = if test.prose.unwrap_or(false) {
+                    dataset.build_record_with_prose(query).await?
+                } else {
+                    dataset.build_record(query).await?
+                };
+                let entry_json: Value = entry.into();
+                let expected_json = read_record(&test.expected.as_ref().unwrap()[0]);
 
-#[tokio::test]
-async fn build_with_prose_flag_no_blobs() -> Result<()> {
-    let temp_path = TempDir::new()?;
-    copy("prose_default", temp_path.path());
+                let r = assert_json_matches_no_panic(
+                    &entry_json, &expected_json, Config::new(CompareMode::Strict),
+                );
+                assert!(r.is_ok(), "{} failed\n{:#?}\n{:#?}", test.name, entry_json, expected_json);
+            }
+            "select" => {
+                let entries = dataset.select_record(queries, true).await?;
+                let entries_json: Vec<Value> = entries.iter().map(|i| i.clone().into()).collect();
+                let expected_json = read_records(test.expected.as_ref().unwrap());
 
-    // climbed-everest has no prose blobs
-    let query: Entry = read_record("query_prose_japan").try_into()?;
-    let dataset = Dataset::open(&temp_path.path().to_owned()).await?;
+                let r = assert_json_matches_no_panic(
+                    &entries_json, &expected_json, Config::new(CompareMode::Strict),
+                );
+                assert!(r.is_ok(), "{} failed\n{:#?}\n{:#?}", test.name, entries_json, expected_json);
+            }
+            "insert" => {
+                dataset.insert_record(queries).await?;
 
-    // build everest directly
-    let everest = Entry::new("event");
-    let everest = Entry {
-        base: "event".to_string(),
-        base_value: Some("climbed-everest".to_string()),
-        leader_value: None,
-        leaves: std::collections::HashMap::new(),
-        prose: std::collections::HashMap::new(),
-    };
-    let entry = dataset.build_record_with_prose(everest).await?;
-    let entry_json = entry.into_value();
+                if let Some(ref blob) = test.expected_blob {
+                    check_blobs(temp_path.path(), &[blob.clone()], &test.name);
+                }
+                if let Some(ref blobs) = test.expected_blobs {
+                    check_blobs(temp_path.path(), blobs, &test.name);
+                }
+            }
+            "update" => {
+                dataset.update_record(queries).await?;
 
-    let expected_json = read_record("record_prose_everest");
-
-    let r = assert_json_matches_no_panic(&entry_json, &expected_json, Config::new(CompareMode::Strict));
-    assert!(r.is_ok(), "build with prose flag should work when no blobs exist\n{:#?}\n{:#?}", entry_json, expected_json);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn search_by_untagged_prose() -> Result<()> {
-    let temp_path = TempDir::new()?;
-    copy("prose_default", temp_path.path());
-
-    let query: Entry = read_record("query_prose_search").try_into()?;
-    let dataset = Dataset::open(&temp_path.path().to_owned()).await?;
-    let entries = dataset.select_record(vec![query], true).await?;
-    let entries_json: Vec<Value> = entries.iter().map(|i| i.clone().into_value()).collect();
-
-    let expected_json = read_records(&vec!["record_prose_japan_light".to_string()]);
-
-    let r = assert_json_matches_no_panic(&entries_json, &expected_json, Config::new(CompareMode::Strict));
-    assert!(r.is_ok(), "search by untagged prose\n{:#?}\n{:#?}", entries_json, expected_json);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn search_by_tagged_prose() -> Result<()> {
-    let temp_path = TempDir::new()?;
-    copy("prose_default", temp_path.path());
-
-    let query: Entry = read_record("query_prose_search_ru").try_into()?;
-    let dataset = Dataset::open(&temp_path.path().to_owned()).await?;
-    let entries = dataset.select_record(vec![query], true).await?;
-    let entries_json: Vec<Value> = entries.iter().map(|i| i.clone().into_value()).collect();
-
-    let expected_json = read_records(&vec!["record_prose_japan_light".to_string()]);
-
-    let r = assert_json_matches_no_panic(&entries_json, &expected_json, Config::new(CompareMode::Strict));
-    assert!(r.is_ok(), "search by tagged prose\n{:#?}\n{:#?}", entries_json, expected_json);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn insert_with_prose() -> Result<()> {
-    let temp_path = TempDir::new()?;
-    copy("prose_default", temp_path.path());
-
-    let record: Entry = read_record("record_prose_insert").try_into()?;
-    let dataset = Dataset::open(&temp_path.path().to_owned()).await?;
-    dataset.insert_record(vec![record]).await?;
-
-    // Check that the blob was written
-    let blob_path = temp_path.path().join("@").join("moved-to-bath.en");
-    assert!(blob_path.exists(), "prose blob should be written");
-
-    let content = fs::read_to_string(&blob_path)?;
-    assert_eq!(content, "Relocated to Bath for work");
-
-    // Check that the tablet was written without @ keys
-    let tablet_path = temp_path.path().join("event-date.csv");
-    let tablet_content = fs::read_to_string(&tablet_path)?;
-    assert!(tablet_content.contains("moved-to-bath"), "tablet should contain the event");
-    assert!(!tablet_content.contains("Relocated"), "tablet should not contain prose content");
+                if let Some(ref blob) = test.expected_blob {
+                    check_blobs(temp_path.path(), &[blob.clone()], &test.name);
+                }
+                if let Some(ref blobs) = test.expected_blobs {
+                    check_blobs(temp_path.path(), blobs, &test.name);
+                }
+            }
+            _ => panic!("unknown op: {}", test.op),
+        }
+    }
 
     Ok(())
 }
@@ -173,7 +150,7 @@ async fn build_nested_prose_with_into_value() -> Result<()> {
     let query: Entry = read_record("query_prose_mind").try_into()?;
     let dataset = Dataset::open(&temp_path.path().to_owned()).await?;
     let entry = dataset.build_record_with_prose(query).await?;
-    let entry_json = entry.into_value();
+    let entry_json: Value = entry.into();
 
     // The branch leaves should be objects with @en/@ru, not collapsed to strings
     let branches = entry_json.get("branch").expect("should have branch");

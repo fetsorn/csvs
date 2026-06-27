@@ -1,5 +1,5 @@
 use assert_json_diff::{assert_json_matches_no_panic, CompareMode, Config};
-use csvs::{Entry, Grain, IntoValue, Result};
+use csvs::{Entry, Grain, Result};
 use csvs_test::{read_record, read_testcase};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -26,7 +26,7 @@ fn sow_test() -> Result<()> {
 
         let result: Entry = entry.sow(&grain, &test.trunk, &test.branch);
 
-        let result_json: Value = result.into_value();
+        let result_json: Value = result.into();
 
         let expected_json: Value = read_record(&test.expected);
 

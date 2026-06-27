@@ -1,18 +1,17 @@
 use super::Grain;
-use crate::IntoValue;
 use serde_json::{json, Value};
 
-impl IntoValue for Grain {
-    fn into_value(self) -> Value {
-        match self.leaf_value {
+impl From<Grain> for Value {
+    fn from(grain: Grain) -> Value {
+        match grain.leaf_value {
             Some(leaf_value) => json!({
-                "_": self.base,
-                self.base: self.base_value,
-                self.leaf: leaf_value
+                "_": grain.base,
+                grain.base: grain.base_value,
+                grain.leaf: leaf_value
             }),
             None => json!({
-                "_": self.base,
-                self.base: self.base_value
+                "_": grain.base,
+                grain.base: grain.base_value
             }),
         }
     }

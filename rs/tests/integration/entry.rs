@@ -1,5 +1,5 @@
 use assert_json_diff::{assert_json_matches_no_panic, CompareMode, Config};
-use csvs::{Entry, IntoValue, Result};
+use csvs::{Entry, Result};
 use csvs_test::read_testcase;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -50,7 +50,7 @@ fn entry_into_test() -> Result<()> {
 
         let entry: Entry = serde_json::from_str(&entry_string)?;
 
-        let result: Value = entry.into_value();
+        let result: Value = entry.into();
 
         let r =
             assert_json_matches_no_panic(&result, &test.value, Config::new(CompareMode::Strict));

@@ -1,23 +1,23 @@
-use crate::{Entry, IntoValue};
+use crate::Entry;
 use serde_json::{json, Value};
 
-impl IntoValue for Entry {
-    fn into_value(self) -> Value {
+impl From<Entry> for Value {
+    fn from(entry: Entry) -> Value {
         let mut value: Value = json!({
-            "_": self.base,
+            "_": entry.base,
         });
 
-        match self.base_value {
+        match entry.base_value {
             None => (),
-            Some(s) => value[self.base] = s.into(),
+            Some(s) => value[entry.base] = s.into(),
         }
 
-        match self.leader_value {
+        match entry.leader_value {
             None => (),
             Some(s) => value["__"] = s.into(),
         }
 
-        for (lang, text) in self.prose.iter() {
+        for (lang, text) in entry.prose.iter() {
             let key = match lang {
                 None => "@".to_string(),
                 Some(l) => format!("@{}", l),
@@ -25,15 +25,15 @@ impl IntoValue for Entry {
             value[key] = text.clone().into();
         }
 
-        for (leaf, items) in self.leaves.iter() {
-            for entry in items {
+        for (leaf, items) in entry.leaves.iter() {
+            for child in items {
                 // condense entry to a string if it has no leaves
-                let leaf_value: Value = match entry.leaves.is_empty() && entry.prose.is_empty() {
-                    true => match &entry.base_value {
+                let leaf_value: Value = match child.leaves.is_empty() && child.prose.is_empty() {
+                    true => match &child.base_value {
                         None => continue,
                         Some(s) => s.to_owned().into(),
                     },
-                    false => entry.clone().into_value(),
+                    false => child.clone().into(),
                 };
 
                 value[&leaf] = match value.get(leaf) {

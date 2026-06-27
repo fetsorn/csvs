@@ -19,9 +19,8 @@
     "name": "build with prose flag returns no @ keys when no blobs exist",
     "op": "build",
     "initial": "prose_default",
-    "query": ["query_prose_japan"],
+    "query": ["query_prose_everest"],
     "prose": true,
-    "record": "record_prose_everest",
     "expected": ["record_prose_everest"]
   },
   {
@@ -39,12 +38,19 @@
     "expected": ["record_prose_japan_light"]
   },
   {
+    "name": "untagged @ query finds content only in language-tagged blob",
+    "op": "select",
+    "initial": "prose_tagged_only",
+    "query": ["query_prose_search_untagged"],
+    "expected": ["record_prose_japan_light"]
+  },
+{
     "name": "insert with @ keys writes blob and strips @ from tablets",
     "op": "insert",
     "initial": "prose_default",
     "query": ["record_prose_insert"],
     "expected_blob": {
-      "path": "prose/moved-to-bath.en",
+      "path": "@/moved-to-bath.en",
       "content": "Relocated to Bath for work"
     }
   }

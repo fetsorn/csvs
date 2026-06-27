@@ -198,116 +198,60 @@ describe("toSchema()", () => {
 });
 
 describe("prose", () => {
-  test("build without prose flag returns no @ keys", async () => {
-    const dir = readDir("prose_default");
-    const query = readRecord("query_prose_japan");
+  readTestCase("prose").forEach((testCase) => {
+    test(testCase.name, async () => {
+      const dir = readDir(testCase.initial);
+      const query = testCase.query.map(readRecord);
 
-    const entry = await buildRecord({
-      fs: nodefs,
-      bare: true,
-      dir,
-      query: [query],
+      if (testCase.op === "build") {
+        const entry = await buildRecord({
+          fs: nodefs,
+          bare: true,
+          dir,
+          query,
+          prose: testCase.prose,
+        });
+
+        const expected = readRecord(testCase.expected[0]);
+
+        expect(sortObject(entry)).toStrictEqual(sortObject(expected));
+      } else if (testCase.op === "select") {
+        const data = await selectRecord({
+          fs: nodefs,
+          bare: true,
+          dir,
+          query,
+          light: true,
+        });
+
+        const expected = testCase.expected.map(readRecord);
+
+        expect(sortList(data)).toStrictEqual(sortList(expected));
+      } else if (testCase.op === "insert" || testCase.op === "update") {
+        const tmpdir = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-"));
+
+        copy(dir, tmpdir);
+
+        const fn_ = testCase.op === "insert" ? insertRecord : updateRecord;
+
+        await fn_({
+          fs: nodefs,
+          bare: true,
+          dir: tmpdir,
+          query,
+        });
+
+        const blobs = testCase.expected_blobs
+          || (testCase.expected_blob ? [testCase.expected_blob] : []);
+
+        for (const blob of blobs) {
+          const blobPath = join(tmpdir, blob.path);
+
+          expect(nodefs.existsSync(blobPath)).toBe(true);
+          expect(nodefs.readFileSync(blobPath, "utf8")).toBe(blob.content);
+        }
+      }
     });
-
-    expect(entry["@"]).toBeUndefined();
-    expect(entry["@en"]).toBeUndefined();
-    expect(entry["@ru"]).toBeUndefined();
-    expect(entry.event).toBe("visited-japan");
-    expect(entry.date).toBe("2001-01-01");
-  });
-
-  test("build with prose flag returns @ keys", async () => {
-    const dir = readDir("prose_default");
-    const query = readRecord("query_prose_japan");
-
-    const entry = await buildRecord({
-      fs: nodefs,
-      bare: true,
-      dir,
-      query: [query],
-      prose: true,
-    });
-
-    expect(entry["@"]).toBe("We visited Tokyo and Kyoto in spring");
-    expect(entry["@en"]).toBe("We visited Tokyo and Kyoto in spring");
-    expect(entry["@ru"]).toBe("Мы посетили Токио и Киото весной");
-  });
-
-  test("build with prose flag returns no @ keys when no blobs exist", async () => {
-    const dir = readDir("prose_default");
-
-    const entry = await buildRecord({
-      fs: nodefs,
-      bare: true,
-      dir,
-      query: [{ _: "event", event: "climbed-everest" }],
-      prose: true,
-    });
-
-    expect(entry["@"]).toBeUndefined();
-    expect(entry["@en"]).toBeUndefined();
-    expect(entry.event).toBe("climbed-everest");
-  });
-
-  test("search by untagged prose content returns light records", async () => {
-    const dir = readDir("prose_default");
-    const query = readRecord("query_prose_search");
-
-    const entries = await selectRecord({
-      fs: nodefs,
-      bare: true,
-      dir,
-      query: [query],
-      light: true,
-    });
-
-    expect(entries.length).toBe(1);
-    expect(entries[0].event).toBe("visited-japan");
-    expect(entries[0].date).toBeUndefined();
-  });
-
-  test("search by language-tagged prose content returns light records", async () => {
-    const dir = readDir("prose_default");
-    const query = readRecord("query_prose_search_ru");
-
-    const entries = await selectRecord({
-      fs: nodefs,
-      bare: true,
-      dir,
-      query: [query],
-      light: true,
-    });
-
-    expect(entries.length).toBe(1);
-    expect(entries[0].event).toBe("visited-japan");
-    expect(entries[0].date).toBeUndefined();
-  });
-
-  test("insert with @ keys writes blob and strips @ from tablets", async () => {
-    const tmpdir = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-"));
-
-    copy(readDir("prose_default"), tmpdir);
-
-    const record = readRecord("record_prose_insert");
-
-    await insertRecord({
-      fs: nodefs,
-      bare: true,
-      dir: tmpdir,
-      query: [record],
-    });
-
-    // Check blob was written
-    const blobPath = join(tmpdir, "@", "moved-to-bath.en");
-    expect(nodefs.existsSync(blobPath)).toBe(true);
-    expect(nodefs.readFileSync(blobPath, "utf8")).toBe(
-      "Relocated to Bath for work",
-    );
-
-    // Check tablet has the event but not prose content
-    const tablet = nodefs.readFileSync(join(tmpdir, "event-date.csv"), "utf8");
-    expect(tablet).toContain("moved-to-bath");
-    expect(tablet).not.toContain("Relocated");
   });
 });
 

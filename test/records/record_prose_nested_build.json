@@ -1,0 +1,8 @@
+{
+  "_": "mind",
+  "mind": "abc123",
+  "branch": [
+    {"_": "branch", "branch": "event", "trunk": "actdate", "@en": "Record", "@ru": "Запись"},
+    {"_": "branch", "branch": "actdate", "@en": "Date of the event"}
+  ]
+}

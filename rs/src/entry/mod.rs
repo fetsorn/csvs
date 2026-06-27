@@ -3,8 +3,8 @@ pub mod mow;
 pub mod sow;
 mod try_from;
 use crate::Grain;
-use crate::IntoValue;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -25,7 +25,8 @@ pub struct Entry {
 
 impl fmt::Display for Entry {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.clone().into_value())
+        let value: Value = self.clone().into();
+        write!(f, "{}", value)
     }
 }
 

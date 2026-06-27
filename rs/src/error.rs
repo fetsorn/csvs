@@ -34,6 +34,18 @@ impl Error {
     }
 }
 
+impl From<String> for Error {
+    fn from(msg: String) -> Error {
+        Error { inner: msg.into() }
+    }
+}
+
+impl From<&str> for Error {
+    fn from(msg: &str) -> Error {
+        Error { inner: msg.to_string().into() }
+    }
+}
+
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
         Error { inner: err.into() }

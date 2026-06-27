@@ -1,5 +1,5 @@
 use assert_json_diff::{assert_json_matches_no_panic, CompareMode, Config};
-use csvs::{Grain, IntoValue, Result};
+use csvs::{Grain, Result};
 use csvs_test::read_testcase;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -50,7 +50,7 @@ fn grain_into_test() -> Result<()> {
 
         let grain: Grain = serde_json::from_str(&grain_string)?;
 
-        let result: Value = grain.into_value();
+        let result: Value = grain.into();
 
         let r =
             assert_json_matches_no_panic(&result, &test.value, Config::new(CompareMode::Strict));

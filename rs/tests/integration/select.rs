@@ -4,7 +4,7 @@ use serde_json::Value;
 use async_stream::try_stream;
 use csvs::{
     Result,
-    Entry, IntoValue, Dataset
+    Entry, Dataset
 };
 use csvs_test::{read_record, read_records, copy, read_testcase};
 use serde::{Deserialize, Serialize};
@@ -52,7 +52,7 @@ async fn select_test() -> Result<()> {
 
         let entries = dataset.select_record(queries, false).await?;
 
-        let entries_json: Vec<Value> = entries.iter().map(|i| i.clone().into_value()).collect();
+        let entries_json: Vec<Value> = entries.iter().map(|i| i.clone().into()).collect();
 
         let expected_json: Vec<Value> = read_records(&test.expected);
 
