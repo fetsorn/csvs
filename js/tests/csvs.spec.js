@@ -549,3 +549,36 @@ describe("an invalid regex filter matches nothing instead of throwing", () => {
     expect(bad).toStrictEqual([]);
   });
 });
+
+describe("an empty (0-byte) tablet behaves like a missing one", () => {
+  // A data tablet that exists on disk but is empty must be treated the
+  // same as an absent one: for a non-first tablet in a query join it is a
+  // match-all passthrough, not a source that filters out every candidate.
+  // `isEmpty` (stream.js) encodes this contract; the csvs-rs port used to
+  // guard only on file existence and silently dropped the query state.
+
+  test("query path: empty non-first tablet does not drop the match", async () => {
+    const dir = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-empty-"));
+
+    nodefs.writeFileSync(join(dir, ".csvs.csv"), "version,0.0.4\nid,test\n");
+    // `event` has two twig leaves; at equal nesting they sort
+    // reverse-alphabetically, so the plan visits `event-tag` (populated)
+    // before `event-date` (empty).
+    nodefs.writeFileSync(join(dir, "_-_.csv"), "event,date\nevent,tag\n");
+    nodefs.writeFileSync(join(dir, "event-tag.csv"), "visited-japan,japan\n");
+    // an existing but empty intermediate tablet
+    nodefs.writeFileSync(join(dir, "event-date.csv"), "");
+
+    const data = await selectRecord({
+      fs: nodefs,
+      bare: true,
+      dir,
+      // `date` is constrained, but its tablet is empty, so that constraint
+      // is ignored (match-all) rather than excluding the row.
+      query: { _: "event", tag: "japan", date: "unused" },
+      light: true,
+    });
+
+    expect(data.map((r) => r.event)).toStrictEqual(["visited-japan"]);
+  });
+});

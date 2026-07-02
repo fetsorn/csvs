@@ -1,6 +1,7 @@
 #![allow(warnings)]
 extern crate dir_diff;
 mod delete;
+mod empty_tablet;
 mod entry;
 mod grain;
 mod init;

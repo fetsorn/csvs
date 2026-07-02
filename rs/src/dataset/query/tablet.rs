@@ -162,11 +162,19 @@ pub fn query_tablet_stream(
 ) -> impl Stream<Item = Result<State>> {
     try_stream! {
         let filepath = dataset.dir.join(&tablet.filename);
-        let file_exists = std::fs::metadata(&filepath).is_ok();
+
+        // an existing but empty (0-byte) tablet must behave like a missing
+        // one, mirroring csvs-js `isEmpty` (stream.js), which treats size 0
+        // the same as absent. guarding only on existence would let an empty
+        // file fall through to the reader, yield no key groups, and silently
+        // drop the accumulated query state on a non-first tablet.
+        let is_empty = std::fs::metadata(&filepath)
+            .map(|meta| meta.len() == 0)
+            .unwrap_or(true);
 
         // first tablet needs lines — empty/missing file means no matches
         // later tablet — empty/missing file means match all
-        if !file_exists {
+        if is_empty {
             if !is_first_tablet {
                 yield state;
             }
