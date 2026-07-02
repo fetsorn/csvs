@@ -28,6 +28,7 @@ import {
   buildRecord,
 } from "../src/index.js";
 import { isConnected, getNestingLevel } from "../src/schema.js";
+import { readProse } from "../src/prose/index.js";
 
 describe("selectRecord()", () => {
   readTestCase("select").forEach((testCase) => {
@@ -386,6 +387,39 @@ describe("prose language tag is a BCP 47 controlled vocabulary", () => {
     expect(nodefs.readFileSync(join(dir, "@", "x.en-US"), "utf8")).toBe(
       "hello",
     );
+  });
+});
+
+describe("prose requires a non-empty base value", () => {
+  test("rejects prose on an empty base value instead of writing a dotfile", async () => {
+    const dir = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-prose-empty-"));
+
+    nodefs.mkdirSync(join(dir, "@"), { recursive: true });
+    nodefs.writeFileSync(join(dir, ".csvs.csv"), "version,0.0.4\nid,test\n");
+    nodefs.writeFileSync(join(dir, "_-_.csv"), "event,date\n");
+
+    await expect(
+      insertRecord({
+        fs: nodefs,
+        bare: true,
+        dir,
+        query: { _: "event", event: "", "@en": "orphan prose" },
+      }),
+    ).rejects.toThrow(/empty base value/);
+
+    // neither the dotfile ".en" nor anything else leaked into the store
+    expect(nodefs.readdirSync(join(dir, "@"))).toEqual([]);
+  });
+
+  test("reading an empty base value yields no prose", async () => {
+    const dir = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-prose-emptyr-"));
+
+    nodefs.mkdirSync(join(dir, "@"), { recursive: true });
+
+    // even if a stray ".en" dotfile exists, an empty value addresses nothing
+    nodefs.writeFileSync(join(dir, "@", ".en"), "stray");
+
+    expect(await readProse(nodefs, dir, "")).toEqual({});
   });
 });
 

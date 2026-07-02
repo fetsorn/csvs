@@ -53,12 +53,29 @@ function prosePath(dir, value, lang) {
 }
 
 /**
+ * Whether `value` may address a prose blob. Only a non-empty string can:
+ * the prose filename is `{uriEncode(value)}[.{lang}]`, so an empty value
+ * yields a filename that is either the "@" directory itself (untagged) or a
+ * dotfile `.{lang}` whose leading "." collides with the language-tag
+ * separator, making it ambiguous to parse back into value + tag. Forbidding
+ * empty base values keeps every filename in the form `{nonempty}[.{lang}]`,
+ * so the value/tag split is unambiguous across ports (mirrors the Rust
+ * `value.is_empty()` guard).
+ */
+export function isAddressableValue(value) {
+  return typeof value === "string" && value !== "";
+}
+
+/**
  * Read all prose for a value (untagged + all language tags).
  * Returns an object like { null: "untagged text", "en": "english", "ru": "russian" }
  * where null key means untagged.
  */
 export async function readProse(fs, dir, value) {
   const result = {};
+
+  // an empty base value never addresses a blob (see isAddressableValue)
+  if (!isAddressableValue(value)) return result;
 
   // Try untagged
   const untaggedPath = prosePath(dir, value, null);
@@ -101,6 +118,14 @@ export async function readProse(fs, dir, value) {
  * Write a single prose blob.
  */
 export async function writeProse(fs, dir, value, lang, content) {
+  // an empty base value cannot address a blob unambiguously; forbid it
+  // instead of writing a dotfile or into the "@" directory itself
+  if (!isAddressableValue(value)) {
+    throw new Error(
+      `csvs: cannot store prose for an empty base value: ${JSON.stringify(value)}`,
+    );
+  }
+
   const filePath = prosePath(dir, value, lang);
   const fileDir = path.dirname(filePath);
 

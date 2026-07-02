@@ -34,6 +34,11 @@ impl ProseAddress {
     pub fn read_prose(&self, dir: &Path, value: &str) -> Result<HashMap<Option<String>, String>> {
         let mut result = HashMap::new();
 
+        // an empty base value never addresses a blob (see is_addressable_value)
+        if !is_addressable_value(value) {
+            return Ok(result);
+        }
+
         // Try untagged
         let untagged_path = self.path(dir, value, None);
 
@@ -76,6 +81,14 @@ impl ProseAddress {
         lang: Option<&str>,
         content: &str,
     ) -> Result<()> {
+        // an empty base value cannot address a blob unambiguously; forbid it
+        // instead of writing a dotfile or into the "@" directory itself
+        if !is_addressable_value(value) {
+            return Err(crate::Error::from_message(format!(
+                "csvs: cannot store prose for an empty base value: {value:?}"
+            )));
+        }
+
         if let Some(l) = lang {
             if !is_well_formed_lang(l) {
                 return Err(crate::Error::from_message(format!(
@@ -156,6 +169,18 @@ impl ProseAddress {
 
         Ok(matches)
     }
+}
+
+/// Whether `value` may address a prose blob. Only a non-empty string can:
+/// the prose filename is `{uri_encode(value)}[.{lang}]`, so an empty value
+/// yields a filename that is either the "@" directory itself (untagged) or a
+/// dotfile `.{lang}` whose leading '.' collides with the language-tag
+/// separator, making it ambiguous to parse back into value + tag. Forbidding
+/// empty base values keeps every filename in the form `{nonempty}[.{lang}]`,
+/// so the value/tag split is unambiguous across ports (mirrors the JS
+/// `isAddressableValue` guard).
+pub fn is_addressable_value(value: &str) -> bool {
+    !value.is_empty()
 }
 
 /// Whether `lang` is a well-formed BCP 47 language tag: a controlled
@@ -268,6 +293,45 @@ mod tests {
         ] {
             assert!(!is_well_formed_lang(l), "should reject: {l:?}");
         }
+    }
+
+    #[test]
+    fn write_prose_rejects_empty_base_value() {
+        let dir = std::env::temp_dir().join(format!("csvs-prose-empty-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("@")).unwrap();
+
+        let store = ProseAddress::Uri;
+
+        // tagged: would write the dotfile "@/.en"
+        assert!(
+            store.write_prose(&dir, "", Some("en"), "x").is_err(),
+            "empty base value with a tag must be rejected"
+        );
+
+        // untagged: would write into the "@" directory itself
+        assert!(
+            store.write_prose(&dir, "", None, "x").is_err(),
+            "empty base value without a tag must be rejected"
+        );
+
+        // nothing was created inside the store
+        let entries: Vec<_> = std::fs::read_dir(dir.join("@")).unwrap().collect();
+        assert!(entries.is_empty(), "no blob may be written for an empty value");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn read_prose_empty_base_value_returns_nothing() {
+        let dir = std::env::temp_dir().join(format!("csvs-prose-emptyr-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("@")).unwrap();
+
+        let store = ProseAddress::Uri;
+        let result = store.read_prose(&dir, "").unwrap();
+
+        assert!(result.is_empty(), "empty base value addresses no blob");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
