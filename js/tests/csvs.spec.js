@@ -22,6 +22,7 @@ import {
   findCrown,
   sortNestingAscending,
   sortNestingDescending,
+  isWellFormedBranch,
   mow,
   sow,
   buildRecord,
@@ -382,5 +383,73 @@ describe("prose language tag is a BCP 47 controlled vocabulary", () => {
     });
 
     expect(nodefs.readFileSync(join(dir, "@", "x.en-US"), "utf8")).toBe("hello");
+  });
+});
+
+describe("schema collection names must be safe as tablet filenames", () => {
+  test("rejects a traversal branch instead of reading outside the store", async () => {
+    const root = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-branch-"));
+    const dir = join(root, "store");
+
+    nodefs.mkdirSync(dir, { recursive: true });
+
+    // secret file OUTSIDE the dataset directory
+    nodefs.writeFileSync(join(root, "secret.csv"), "topsecret,hunter2\n");
+
+    // branch escapes the `event-` filename prefix via an inner slash,
+    // so `event-x/../../secret.csv` resolves to root/secret.csv
+    const evil = "x/../../secret";
+    nodefs.writeFileSync(join(dir, "_-_.csv"), `event,${evil}\n`);
+    nodefs.writeFileSync(join(dir, "event-event.csv"), "topsecret,topsecret\n");
+
+    await expect(
+      selectRecord({
+        fs: nodefs,
+        bare: true,
+        dir,
+        query: { _: "event", event: "topsecret" },
+      }),
+    ).rejects.toThrow(/well-formed branch/);
+  });
+
+  test("rejects a traversal branch instead of writing outside the store", async () => {
+    const root = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-branch-w-"));
+    const dir = join(root, "store");
+
+    nodefs.mkdirSync(dir, { recursive: true });
+
+    const outside = join(root, "PWNED.csv");
+    const evil = "x/../../PWNED";
+    nodefs.writeFileSync(join(dir, "_-_.csv"), `event,${evil}\n`);
+
+    await expect(
+      updateRecord({
+        fs: nodefs,
+        bare: true,
+        dir,
+        query: { _: "event", event: "k", [evil]: "INJECTED" },
+      }),
+    ).rejects.toThrow(/well-formed branch/);
+
+    expect(nodefs.existsSync(outside)).toBe(false);
+  });
+
+  test("isWellFormedBranch accepts normal names, rejects unsafe ones", () => {
+    for (const ok of ["event", "date", "actName", "tag%40", "a b", "日本語"]) {
+      expect(isWellFormedBranch(ok)).toBe(true);
+    }
+
+    for (const bad of [
+      "_",
+      "",
+      "a/b",
+      "a\\b",
+      "a.b",
+      "a-b",
+      "..",
+      "x/../../secret",
+    ]) {
+      expect(isWellFormedBranch(bad)).toBe(false);
+    }
   });
 });

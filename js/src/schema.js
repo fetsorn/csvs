@@ -166,6 +166,48 @@ function append(list, item) {
   return isEmpty ? [item] : [list, item].flat();
 }
 
+/**
+ * Characters a collection (branch) name must not contain, per the CSVS
+ * spec. Branch names are interpolated into tablet filenames as
+ * `{trunk}-{branch}.csv`, so an unconstrained name — e.g. one containing
+ * a slash and `..` — escapes the dataset directory and allows arbitrary
+ * file reads and writes (path traversal). This mirrors the prose
+ * language-tag guard (`isWellFormedLang` in prose/index.js), which closes
+ * the same vector for prose filenames.
+ *
+ * The set covers filesystem separators and traversal (`/ \ .`), the tablet
+ * key separator (`-`), and the other characters the spec reserves because
+ * collection names are used as filenames.
+ */
+const BRANCH_FORBIDDEN = /[/\\<>':"`|?*.,\[\];{}$&\n\r-]/;
+
+/**
+ * A well-formed collection (branch) name: a non-empty string that is
+ * neither the reserved schema base `_` nor contains a forbidden character.
+ * @param {string} name - Candidate collection name.
+ * @returns {boolean}
+ */
+export function isWellFormedBranch(name) {
+  return (
+    typeof name === "string" &&
+    name.length > 0 &&
+    name !== "_" &&
+    !BRANCH_FORBIDDEN.test(name)
+  );
+}
+
+/**
+ * Throw if a collection name would be unsafe to use as a tablet filename.
+ * @param {string} name - Candidate collection name.
+ */
+export function assertWellFormedBranch(name) {
+  if (!isWellFormedBranch(name)) {
+    throw new Error(
+      `csvs: collection name is not a well-formed branch: ${JSON.stringify(name)}`,
+    );
+  }
+}
+
 export function toSchema(schemaRecord) {
   const invalidRecord =
     !Object.hasOwn(schemaRecord, "_") || schemaRecord._ !== "_";
@@ -175,9 +217,13 @@ export function toSchema(schemaRecord) {
   const { _: omit, ...record } = schemaRecord;
 
   return Object.entries(record).reduce((withTrunk, [trunk, value]) => {
+    assertWellFormedBranch(trunk);
+
     const leaves = Array.isArray(value) ? value : [value];
 
     return leaves.reduce((withLeaf, leaf) => {
+      assertWellFormedBranch(leaf);
+
       const trunkOld = withLeaf[trunk] ?? {};
 
       const trunkTrunks = trunkOld.trunks ?? [];

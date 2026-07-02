@@ -26,6 +26,7 @@ import {
   toSchema,
   sortNestingAscending,
   sortNestingDescending,
+  isWellFormedBranch,
 } from "./schema.js";
 import { mow, sow } from "./record.js";
 
@@ -45,6 +46,7 @@ export {
   toSchema,
   sortNestingAscending,
   sortNestingDescending,
+  isWellFormedBranch,
   mow,
   sow,
 };
@@ -65,6 +67,7 @@ export default {
   toSchema,
   sortNestingAscending,
   sortNestingDescending,
+  isWellFormedBranch,
   mow,
   sow,
 };

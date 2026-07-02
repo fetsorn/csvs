@@ -50,7 +50,15 @@ pub async fn build_schema(dataset: &Dataset) -> Result<Schema> {
 pub async fn update_schema(dataset: &Dataset, query: Entry) -> Result<()> {
     let filepath = dataset.dir.join("_-_.csv");
 
-    // TODO add validation
+    // reject collection names that would be unsafe as tablet filenames
+    // before writing them to the schema tablet (see schema::is_well_formed_branch)
+    for (trunk, leaves) in query.leaves.iter() {
+        crate::schema::assert_well_formed_branch(trunk)?;
+
+        for leaf in leaves.iter().filter_map(|e| e.base_value.as_ref()) {
+            crate::schema::assert_well_formed_branch(leaf)?;
+        }
+    }
 
     let filepath = File::create(&filepath)?;
 

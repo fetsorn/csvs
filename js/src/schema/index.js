@@ -1,7 +1,7 @@
 import path from "path";
 import csv from "papaparse";
 import { isEmpty, chunksToLines } from "../stream.js";
-import { toSchema } from "../schema.js";
+import { toSchema, assertWellFormedBranch } from "../schema.js";
 
 export async function selectSchema({
   fs,
@@ -60,7 +60,17 @@ export async function updateSchema({
 }) {
   const filepath = path.join(csvsdir, "_-_.csv");
 
-  // TODO add validation
+  // reject collection names that would be unsafe as tablet filenames
+  // before writing them to the schema tablet (see schema.js)
+  Object.entries(query)
+    .filter(([key]) => key !== "_")
+    .forEach(([trunk, leafValue]) => {
+      assertWellFormedBranch(trunk);
+
+      const leaves = Array.isArray(leafValue) ? leafValue : [leafValue];
+
+      leaves.forEach((leaf) => assertWellFormedBranch(leaf));
+    });
 
   await fs.promises.writeFile(filepath, "");
 
