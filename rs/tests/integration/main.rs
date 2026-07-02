@@ -12,6 +12,7 @@ mod sort;
 mod sow;
 mod update;
 mod prose;
+mod regex;
 use serde_json::Value;
 use std::fs;
 

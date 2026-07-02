@@ -48,9 +48,11 @@ pub fn option_line(tablet: Tablet, state: State, line: Line) -> Result<State> {
         Some(base_value) => {
             let re_str = base_value;
 
-            let re = Regex::new(&re_str)?;
-
-            re.is_match(&base)
+            // a malformed pattern matches nothing instead of aborting the
+            // stream, mirroring the query path (dataset/query/tablet.rs)
+            Regex::new(&re_str)
+                .ok()
+                .map_or(false, |re| re.is_match(&base))
         }
     };
 

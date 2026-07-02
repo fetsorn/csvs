@@ -2,6 +2,7 @@ import path from "path";
 import { ReadableStream } from "@swimburger/isomorphic-streams";
 import { isEmpty } from "../stream.js";
 import { mow, sow } from "../record.js";
+import { matchesRegex } from "../match.js";
 import { keyGroups } from "./groups.js";
 
 export function makeStateInitial({ query, entry, thingQuerying }, tablet) {
@@ -32,25 +33,6 @@ export function makeStateInitial({ query, entry, thingQuerying }, tablet) {
   const thingQueryingInitial = entryBaseChanged ? undefined : thingQuerying;
 
   return { entry: entryInitial, query, thingQuerying: thingQueryingInitial };
-}
-
-/**
- * Test a query value, interpreted as a regular expression, against a
- * candidate string. A malformed pattern — e.g. an unbalanced "(" typed
- * into a search bar — matches nothing instead of throwing and aborting
- * the whole query stream. This mirrors the Rust port
- * (dataset/query/tablet.rs), where `Regex::new(..).ok()` yields no match
- * on an invalid pattern.
- * @param {string} pattern - Query value, treated as a regex.
- * @param {string} value - Candidate string from a tablet.
- * @returns {Boolean}
- */
-function matchesRegex(pattern, value) {
-  try {
-    return new RegExp(pattern).test(value);
-  } catch {
-    return false;
-  }
 }
 
 /**

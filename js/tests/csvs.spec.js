@@ -246,8 +246,9 @@ describe("prose", () => {
           query,
         });
 
-        const blobs = testCase.expected_blobs
-          || (testCase.expected_blob ? [testCase.expected_blob] : []);
+        const blobs =
+          testCase.expected_blobs ||
+          (testCase.expected_blob ? [testCase.expected_blob] : []);
 
         for (const blob of blobs) {
           const blobPath = join(tmpdir, blob.path);
@@ -382,7 +383,9 @@ describe("prose language tag is a BCP 47 controlled vocabulary", () => {
       query: { _: "event", event: "x", "@en-US": "hello" },
     });
 
-    expect(nodefs.readFileSync(join(dir, "@", "x.en-US"), "utf8")).toBe("hello");
+    expect(nodefs.readFileSync(join(dir, "@", "x.en-US"), "utf8")).toBe(
+      "hello",
+    );
   });
 });
 
@@ -451,5 +454,98 @@ describe("schema collection names must be safe as tablet filenames", () => {
     ]) {
       expect(isWellFormedBranch(bad)).toBe(false);
     }
+  });
+});
+
+describe("an invalid regex filter matches nothing instead of throwing", () => {
+  // A query filter value is a regex. An incomplete pattern typed into a
+  // search bar — e.g. an unbalanced "(" — must match nothing rather than
+  // abort the whole select. This contract was established for the
+  // full-record query path; these cover the option and prose-search
+  // paths, which used to compile the pattern unguarded.
+
+  function makeStore(prefix) {
+    const dir = nodefs.mkdtempSync(join(os.tmpdir(), prefix));
+
+    nodefs.writeFileSync(join(dir, ".csvs.csv"), "version,0.0.4\nid,test\n");
+    nodefs.writeFileSync(join(dir, "_-_.csv"), "event,date\n");
+    nodefs.writeFileSync(join(dir, "event-date.csv"), "visited,2001-01-01\n");
+
+    return dir;
+  }
+
+  test("option path (base filter, no leaves): invalid regex → no rows", async () => {
+    const dir = makeStore("csvs-rx-opt-");
+
+    // a valid pattern still selects the option
+    const ok = await selectRecord({
+      fs: nodefs,
+      bare: true,
+      dir,
+      query: { _: "event", event: "vis" },
+      light: true,
+    });
+    expect(ok.map((r) => r.event)).toStrictEqual(["visited"]);
+
+    // an invalid pattern matches nothing without throwing
+    let bad;
+    await expect(
+      (async () => {
+        bad = await selectRecord({
+          fs: nodefs,
+          bare: true,
+          dir,
+          query: { _: "event", event: "vis(" },
+          light: true,
+        });
+      })(),
+    ).resolves.not.toThrow();
+    expect(bad).toStrictEqual([]);
+  });
+
+  test("query path (leaf filter): invalid regex → no rows", async () => {
+    const dir = makeStore("csvs-rx-qry-");
+
+    const data = await selectRecord({
+      fs: nodefs,
+      bare: true,
+      dir,
+      query: { _: "event", date: "2001(" },
+      light: true,
+    });
+
+    expect(data).toStrictEqual([]);
+  });
+
+  test("prose-search path: invalid regex → no rows", async () => {
+    const dir = makeStore("csvs-rx-prose-");
+
+    nodefs.mkdirSync(join(dir, "@"), { recursive: true });
+    nodefs.writeFileSync(join(dir, "@", "visited"), "a long description\n");
+
+    // sanity: a valid prose regex finds the record
+    const ok = await selectRecord({
+      fs: nodefs,
+      bare: true,
+      dir,
+      query: { _: "event", "@": "description" },
+      light: true,
+    });
+    expect(ok.map((r) => r.event)).toStrictEqual(["visited"]);
+
+    // an invalid prose regex matches nothing without throwing
+    let bad;
+    await expect(
+      (async () => {
+        bad = await selectRecord({
+          fs: nodefs,
+          bare: true,
+          dir,
+          query: { _: "event", "@": "desc(" },
+          light: true,
+        });
+      })(),
+    ).resolves.not.toThrow();
+    expect(bad).toStrictEqual([]);
   });
 });

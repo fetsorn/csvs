@@ -119,8 +119,16 @@ export async function writeProse(fs, dir, value, lang, content) {
  */
 export async function searchProse(fs, dir, pattern, lang) {
   const proseDir = path.join(dir, "@");
-  const re = new RegExp(pattern);
   const matches = [];
+
+  // a malformed pattern matches nothing instead of throwing and aborting
+  // the select, mirroring the query and option filter paths (match.js)
+  let re;
+  try {
+    re = new RegExp(pattern);
+  } catch {
+    return matches;
+  }
 
   let files;
   try {

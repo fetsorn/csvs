@@ -109,8 +109,12 @@ impl ProseAddress {
             return Ok(vec![]);
         }
 
-        let re = regex::Regex::new(pattern)
-            .map_err(|e| crate::Error::from_message(format!("invalid prose regex: {}", e)))?;
+        // a malformed pattern matches nothing instead of aborting the
+        // select, mirroring the query and option filter paths
+        let re = match regex::Regex::new(pattern) {
+            Ok(re) => re,
+            Err(_) => return Ok(vec![]),
+        };
 
         let mut matches = vec![];
 

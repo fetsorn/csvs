@@ -1,5 +1,6 @@
 import csv from "papaparse";
 import { sow } from "../record.js";
+import { matchesRegex } from "../match.js";
 import { unescapeNewline } from "../escape.js";
 
 export function optionLine(tablet, state, line) {
@@ -38,7 +39,8 @@ export function optionLine(tablet, state, line) {
   };
 
   // if grain[tablet.trait] is undefined, regex is ""
-  const isMatch = new RegExp(state.query[tablet.trait]).test(base);
+  // a malformed pattern matches nothing instead of aborting the stream
+  const isMatch = matchesRegex(state.query[tablet.trait], base);
 
   // accumulating tablets find all values
   // matched at least once across the dataset
