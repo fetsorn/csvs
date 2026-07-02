@@ -35,6 +35,25 @@ export function makeStateInitial({ query, entry, thingQuerying }, tablet) {
 }
 
 /**
+ * Test a query value, interpreted as a regular expression, against a
+ * candidate string. A malformed pattern — e.g. an unbalanced "(" typed
+ * into a search bar — matches nothing instead of throwing and aborting
+ * the whole query stream. This mirrors the Rust port
+ * (dataset/query/tablet.rs), where `Regex::new(..).ok()` yields no match
+ * on an invalid pattern.
+ * @param {string} pattern - Query value, treated as a regex.
+ * @param {string} value - Candidate string from a tablet.
+ * @returns {Boolean}
+ */
+function matchesRegex(pattern, value) {
+  try {
+    return new RegExp(pattern).test(value);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Match a key group against query grains.
  * Returns { matched, entry, query, thingQuerying } where matched is true
  * if any value in the group satisfied all grain predicates.
@@ -58,7 +77,7 @@ function matchGroup(key, values, tablet, grains, stateInitial) {
     // all grains must match
     const isMatchGrains = grains.reduce((acc, grain) => {
       const isMatchGrain = tablet.traitIsRegex
-        ? new RegExp(grain[tablet.trait]).test(trait_)
+        ? matchesRegex(grain[tablet.trait], trait_)
         : grain[tablet.trait] === trait_;
 
       return acc === undefined ? isMatchGrain : acc && isMatchGrain;

@@ -72,6 +72,12 @@
     "expected": [ ]
   },
   {
+    "name": "malformed regexp matches nothing instead of throwing",
+    "initial": "default",
+    "query": [ "query_invalid_regexp" ],
+    "expected": [ ]
+  },
+  {
     "name": "moddate regex",
     "initial": "default",
     "query": [ "query_moddate_regexp" ],
