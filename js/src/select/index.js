@@ -2,7 +2,7 @@ import path from "path";
 import { queryRecordStream } from "../query/index.js";
 import { selectOptionStream } from "../option/index.js";
 import { buildRecord } from "../build/index.js";
-import { selectSchema } from "../schema/index.js";
+import { selectSchema, buildSchema } from "../schema/index.js";
 import { selectVersion } from "../version/index.js";
 import { extractProse, searchProse, parseLang } from "../prose/index.js";
 
@@ -14,9 +14,20 @@ export function selectRecordStream({
   light,
   prose,
   csvsdir = bare ? dir : path.join(dir, "csvs"),
+  schema,
 }) {
+  // Build the schema at most once for the whole stream, then reuse it for
+  // every query pushed through. Without this the schema (`_-_.csv`) would
+  // be re-read from disk once per record, since `selectRecord` rebuilds it
+  // for each call. Mirrors the Rust `Dataset` schema cache.
+  let schemaResolved = schema;
+
   return new TransformStream({
     async transform(query, controller) {
+      if (schemaResolved === undefined) {
+        schemaResolved = await buildSchema({ fs, bare, dir, csvsdir });
+      }
+
       const entries = await selectRecord({
         fs,
         bare,
@@ -25,6 +36,7 @@ export function selectRecordStream({
         query,
         light,
         prose,
+        schema: schemaResolved,
       });
 
       for (const entry of entries) {
@@ -42,6 +54,7 @@ export function selectRecordStreamPull({
   light,
   prose,
   csvsdir = bare ? dir : path.join(dir, "csvs"),
+  schema,
 }) {
   const queries = Array.isArray(query) ? query : [query];
 
@@ -54,6 +67,20 @@ export function selectRecordStreamPull({
   let proseAllowed = undefined;
 
   const seen = queries.length > 1 ? new Set() : undefined;
+
+  // Resolve the schema at most once and reuse it across every query arm and
+  // every built record. Without this, `queryRecordStream`/`selectOptionStream`
+  // rebuild it per arm and `buildRecord` rebuilds it per record, re-reading
+  // `_-_.csv` from disk O(records) times. Mirrors the Rust `Dataset` cache.
+  let schemaResolved = schema;
+
+  async function getSchema() {
+    if (schemaResolved === undefined) {
+      schemaResolved = await buildSchema({ fs, bare, dir, csvsdir });
+    }
+
+    return schemaResolved;
+  }
 
   function currentQuery() {
     return queries[armIndex];
@@ -91,10 +118,12 @@ export function selectRecordStreamPull({
       Object.keys(stripped).filter((key) => key !== "_" && key !== stripped._)
         .length > 0;
 
+    const schema = await getSchema();
+
     // decide whether we want option or query
     const recordStream = hasLeaves
-      ? await queryRecordStream({ fs, bare, dir, csvsdir, query: stripped })
-      : await selectOptionStream({ fs, bare, dir, csvsdir, query: stripped });
+      ? await queryRecordStream({ fs, bare, dir, csvsdir, query: stripped, schema })
+      : await selectOptionStream({ fs, bare, dir, csvsdir, query: stripped, schema });
 
     recordIterator = recordStream[Symbol.asyncIterator]();
   }
@@ -166,7 +195,15 @@ export function selectRecordStreamPull({
 
     const record = light
       ? value
-      : await buildRecord({ fs, bare, dir, csvsdir, query: [value], prose });
+      : await buildRecord({
+          fs,
+          bare,
+          dir,
+          csvsdir,
+          query: [value],
+          prose,
+          schema: await getSchema(),
+        });
 
     return { done: false, value: record };
   }
@@ -192,11 +229,17 @@ export async function selectRecord({
   light,
   prose,
   csvsdir = bare ? dir : path.join(dir, "csvs"),
+  schema,
 }) {
   // exit if record is undefined
   if (query === undefined) return;
 
   const queries = Array.isArray(query) ? query : [query];
+
+  // Build the schema once for the whole call and reuse it across every query,
+  // instead of letting each `selectRecordStreamPull` rebuild it from disk.
+  const schemaResolved =
+    schema ?? (await buildSchema({ fs, bare, dir, csvsdir }));
 
   let entries = [];
 
@@ -209,6 +252,7 @@ export async function selectRecord({
       query,
       light,
       prose,
+      schema: schemaResolved,
     });
 
     for await (const record of stream) {

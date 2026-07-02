@@ -582,3 +582,88 @@ describe("an empty (0-byte) tablet behaves like a missing one", () => {
     expect(data.map((r) => r.event)).toStrictEqual(["visited-japan"]);
   });
 });
+
+// The module contract (index.js) promises: "Pass a pre-built `schema` option
+// to any operation to avoid repeated reads of `_-_.csv`." The Rust port keeps
+// a `schema_cache` on `Dataset` and reads the schema once. The JS select
+// family used to ignore the option and rebuild the schema from disk once per
+// record (via `buildRecord`), so a select over N records opened `_-_.csv`
+// N+ times. These tests pin the cache boundary.
+describe("selectRecord reads the schema tablet once, not once per record", () => {
+  function countingFs(target) {
+    let schemaReads = 0;
+
+    // Only createReadStream touches `_-_.csv` (via selectSchema); wrap it and
+    // delegate everything else to the real fs.
+    // inherit everything (incl. the `promises` getter) from the real fs,
+    // overriding only createReadStream to count schema-tablet opens
+    const wrapped = Object.create(target);
+
+    wrapped.createReadStream = (p, ...rest) => {
+      if (String(p).endsWith("_-_.csv")) schemaReads += 1;
+
+      return target.createReadStream(p, ...rest);
+    };
+
+    return { fs: wrapped, reads: () => schemaReads };
+  }
+
+  function seedDataset() {
+    const dir = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-schema-"));
+
+    nodefs.writeFileSync(join(dir, ".csvs.csv"), "version,0.0.4\nid,test\n");
+    nodefs.writeFileSync(join(dir, "_-_.csv"), "name,age\n");
+    nodefs.writeFileSync(
+      join(dir, "name-age.csv"),
+      "jack,37\njane,36\njohn,35\n",
+    );
+
+    return dir;
+  }
+
+  test("a full (non-light) select re-reads the schema at most once", async () => {
+    const dir = seedDataset();
+
+    const { fs, reads } = countingFs(nodefs);
+
+    const data = await selectRecord({
+      fs,
+      bare: true,
+      dir,
+      query: { _: "name" },
+    });
+
+    expect(data.map((r) => r.name).sort()).toStrictEqual([
+      "jack",
+      "jane",
+      "john",
+    ]);
+
+    // three records built; without the cache this was >= 3 schema reads
+    expect(reads()).toBeLessThanOrEqual(1);
+  });
+
+  test("a caller-supplied schema is honored and reads the tablet zero times", async () => {
+    const dir = seedDataset();
+
+    const schema = toSchema({ _: "_", name: "age" });
+
+    const { fs, reads } = countingFs(nodefs);
+
+    const data = await selectRecord({
+      fs,
+      bare: true,
+      dir,
+      query: { _: "name" },
+      schema,
+    });
+
+    expect(data.map((r) => r.name).sort()).toStrictEqual([
+      "jack",
+      "jane",
+      "john",
+    ]);
+
+    expect(reads()).toBe(0);
+  });
+});
