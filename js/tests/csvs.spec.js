@@ -279,3 +279,48 @@ describe("init()", () => {
     });
   });
 });
+
+describe("prose language tag is a BCP 47 controlled vocabulary", () => {
+  test("rejects a traversal tag instead of writing outside the store", async () => {
+    const root = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-lang-"));
+    const dir = join(root, "store");
+
+    nodefs.mkdirSync(join(dir, "@"), { recursive: true });
+    nodefs.writeFileSync(join(dir, ".csvs.csv"), "version,0.0.4\nid,test\n");
+    nodefs.writeFileSync(join(dir, "_-_.csv"), "event,date\n");
+
+    const outside = join(root, "PWNED.txt");
+
+    await expect(
+      insertRecord({
+        fs: nodefs,
+        bare: true,
+        dir,
+        query: {
+          _: "event",
+          event: "x",
+          "@../../../../PWNED.txt": "arbitrary file write via lang tag",
+        },
+      }),
+    ).rejects.toThrow(/BCP 47/);
+
+    expect(nodefs.existsSync(outside)).toBe(false);
+  });
+
+  test("accepts a normal language tag", async () => {
+    const dir = nodefs.mkdtempSync(join(os.tmpdir(), "csvs-lang-ok-"));
+
+    nodefs.mkdirSync(join(dir, "@"), { recursive: true });
+    nodefs.writeFileSync(join(dir, ".csvs.csv"), "version,0.0.4\nid,test\n");
+    nodefs.writeFileSync(join(dir, "_-_.csv"), "event,date\n");
+
+    await insertRecord({
+      fs: nodefs,
+      bare: true,
+      dir,
+      query: { _: "event", event: "x", "@en-US": "hello" },
+    });
+
+    expect(nodefs.readFileSync(join(dir, "@", "x.en-US"), "utf8")).toBe("hello");
+  });
+});

@@ -21,9 +21,32 @@ function uriDecode(value) {
 }
 
 /**
+ * Well-formed BCP 47 language tag: a controlled vocabulary of
+ * alphanumeric subtags (1-8 chars each) joined by hyphens.
+ *
+ * The prose filename is `{uriEncode(value)}.{lang}`. The value is
+ * percent-encoded, but the tag is spliced in verbatim, so an
+ * unconstrained tag (e.g. "../../evil") would escape the "@" prose
+ * directory and allow arbitrary file writes. Restricting the tag to
+ * this vocabulary — which excludes "/", "\\", ".", and empty subtags —
+ * closes that path-traversal vector.
+ */
+const LANG_RE = /^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$/;
+
+export function isWellFormedLang(lang) {
+  return typeof lang === "string" && LANG_RE.test(lang);
+}
+
+/**
  * Resolve a value + optional language tag to a filesystem path.
  */
 function prosePath(dir, value, lang) {
+  if (lang !== null && lang !== undefined && !isWellFormedLang(lang)) {
+    throw new Error(
+      `csvs: prose language tag is not a well-formed BCP 47 tag: ${JSON.stringify(lang)}`,
+    );
+  }
+
   const encoded = uriEncode(value);
   const filename = lang ? `${encoded}.${lang}` : encoded;
   return path.join(dir, "@", filename);

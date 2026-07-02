@@ -9,8 +9,9 @@
 #ifndef CSVS_H
 #define CSVS_H
 
-#include <stddef.h>
+#include "version.h"
 #include <cJSON.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
