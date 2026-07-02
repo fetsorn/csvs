@@ -19,10 +19,14 @@ import {
   insertRecord,
   deleteRecord,
   toSchema,
+  findCrown,
+  sortNestingAscending,
+  sortNestingDescending,
   mow,
   sow,
   buildRecord,
 } from "../src/index.js";
+import { isConnected, getNestingLevel } from "../src/schema.js";
 
 describe("selectRecord()", () => {
   readTestCase("select").forEach((testCase) => {
@@ -277,6 +281,62 @@ describe("init()", () => {
         loadContents(testCase.expected),
       );
     });
+  });
+});
+
+describe("recursive schema does not overflow the stack", () => {
+  // The format explicitly permits recursive relations, e.g. `event,event`
+  // or `event -> date -> event`. Walking the schema graph must terminate
+  // on cycles instead of recursing until "Maximum call stack size exceeded".
+
+  test("self-recursive branch (landmark -> landmark)", () => {
+    const schema = toSchema({ _: "_", landmark: "landmark" });
+
+    // an unrelated base must not send isConnected into a cycle
+    expect(isConnected(schema, "unrelated", "landmark")).toBe(false);
+    // the branch is trivially connected to itself
+    expect(isConnected(schema, "landmark", "landmark")).toBe(true);
+    expect(findCrown(schema, "landmark")).toStrictEqual(["landmark"]);
+
+    expect(getNestingLevel(schema, "landmark")).toBe(1);
+    expect(() =>
+      Object.keys(schema).sort(sortNestingAscending(schema)),
+    ).not.toThrow();
+    expect(() =>
+      Object.keys(schema).sort(sortNestingDescending(schema)),
+    ).not.toThrow();
+  });
+
+  test("mutually-recursive branches (event <-> date)", () => {
+    const schema = toSchema({ _: "_", event: "date", date: "event" });
+
+    expect(isConnected(schema, "unrelated", "event")).toBe(false);
+    expect(isConnected(schema, "event", "date")).toBe(true);
+    expect(isConnected(schema, "date", "event")).toBe(true);
+
+    expect(() => getNestingLevel(schema, "event")).not.toThrow();
+    expect(() => getNestingLevel(schema, "date")).not.toThrow();
+    expect(() =>
+      Object.keys(schema).sort(sortNestingAscending(schema)),
+    ).not.toThrow();
+  });
+
+  test("a diamond (non-cyclic) is still counted at full depth", () => {
+    // datum -> { a, b } -> leaf : leaf is reachable through two distinct
+    // paths but there is no cycle. The cycle guard must not treat the
+    // second path as already-visited and collapse leaf's level; it stays
+    // at 2 (one above a/b), the same as before the guard was added.
+    const schema = toSchema({
+      _: "_",
+      datum: ["a", "b"],
+      a: "leaf",
+      b: "leaf",
+    });
+
+    expect(getNestingLevel(schema, "datum")).toBe(0);
+    expect(getNestingLevel(schema, "a")).toBe(1);
+    expect(getNestingLevel(schema, "b")).toBe(1);
+    expect(getNestingLevel(schema, "leaf")).toBe(2);
   });
 });
 
