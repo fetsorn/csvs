@@ -28,12 +28,7 @@ pub async fn build_tablet(path: PathBuf, tablet: Tablet, entry: Entry) -> Result
     for result in rdr.records() {
         let record = result?;
 
-        let line_escaped = Line {
-            key: match record.get(0) { None => String::from(""), Some(s) => s.to_owned() },
-            value: match record.get(1) { None => String::from(""), Some(s) => s.to_owned() }
-        };
-
-        let line = line_escaped.unescape();
+        let line = Line::from_record(&tablet.filename, &record)?;
 
         state = build_line(tablet.clone(), grains.clone(), state.clone(), line)?;
 

@@ -27,15 +27,15 @@ pub fn key_groups(filepath: &Path) -> Result<Vec<KeyGroup>> {
     let mut current_key: Option<String> = None;
     let mut current_values: Vec<String> = Vec::new();
 
+    let filename = filepath
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+
     for result in rdr.records() {
         let record = result?;
 
-        let line_escaped = Line {
-            key: record.get(0).unwrap_or("").to_owned(),
-            value: record.get(1).unwrap_or("").to_owned(),
-        };
-
-        let line = line_escaped.unescape();
+        let line = Line::from_record(filename, &record)?;
 
         match &current_key {
             Some(k) if *k != line.key => {

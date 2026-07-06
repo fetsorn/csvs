@@ -20,23 +20,13 @@ pub async fn filter_lines_to_temp(path: PathBuf, tablet: Tablet, _entry: Entry, 
 
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
+        .flexible(true)
         .from_reader(file);
 
     for result in rdr.records() {
         let record = result?;
 
-        let line_escaped = Line {
-            key: match record.get(0) {
-                None => String::from(""),
-                Some(s) => s.to_owned(),
-            },
-            value: match record.get(1) {
-                None => String::from(""),
-                Some(s) => s.to_owned(),
-            },
-        };
-
-        let line = line_escaped.unescape();
+        let line = Line::from_record(&tablet.filename, &record)?;
 
         let trait_ = if tablet.trait_is_first {
             line.key.to_owned()
@@ -47,7 +37,7 @@ pub async fn filter_lines_to_temp(path: PathBuf, tablet: Tablet, _entry: Entry, 
         let is_match = trait_ == tablet.trait_;
 
         if !is_match {
-            wtr.serialize(line)?;
+            wtr.serialize(line.escape())?;
         }
     }
 

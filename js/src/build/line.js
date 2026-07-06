@@ -1,15 +1,8 @@
-import csv from "papaparse";
 import { sow } from "../record.js";
-import { unescapeNewline } from "../escape.js";
+import { parseLine } from "../line.js";
 
 export function buildLine(state, tablet, grains, line) {
-  const {
-    data: [[fstEscaped, sndEscaped]],
-  } = csv.parse(line, { delimiter: "," });
-
-  const fst = unescapeNewline(fstEscaped);
-
-  const snd = unescapeNewline(sndEscaped);
+  const [fst, snd] = parseLine(tablet.filename, line);
 
   const fstIsNew = state.fst === undefined || state.fst !== fst;
 

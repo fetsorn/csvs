@@ -76,7 +76,7 @@ async function appendTablet(fs, dir, tablet, query, tmpPath) {
       continue;
     }
 
-    state = updateLine(state, line);
+    state = updateLine(tablet, state, line);
 
     for (const key of state.keysInserted) {
       await insertAndForget(key);

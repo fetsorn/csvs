@@ -6,6 +6,7 @@ mod entry;
 mod grain;
 mod init;
 mod insert;
+mod malformed_line;
 mod mow;
 mod schema;
 mod select;

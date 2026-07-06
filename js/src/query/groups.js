@@ -1,7 +1,6 @@
 import path from "path";
-import csv from "papaparse";
 import { isEmpty, chunksToLines } from "../stream.js";
-import { unescapeNewline } from "../escape.js";
+import { parseLine } from "../line.js";
 
 /**
  * Layer 1 — KeyGroupStream.
@@ -24,12 +23,7 @@ export async function* keyGroups(fs, dir, filename) {
   for await (const line of lineStream) {
     if (line === "" || line === "\n") continue;
 
-    const {
-      data: [[fstEscaped, sndEscaped]],
-    } = csv.parse(line, { delimiter: "," });
-
-    const key = unescapeNewline(fstEscaped ?? "");
-    const value = unescapeNewline(sndEscaped ?? "");
+    const [key, value] = parseLine(filename, line);
 
     if (currentKey !== undefined && key !== currentKey) {
       yield { key: currentKey, values: currentValues };

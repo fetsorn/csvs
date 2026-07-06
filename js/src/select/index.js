@@ -5,6 +5,7 @@ import { buildRecord } from "../build/index.js";
 import { selectSchema, buildSchema } from "../schema/index.js";
 import { selectVersion } from "../version/index.js";
 import { extractProse, searchProse, parseLang } from "../prose/index.js";
+import { extractTraversals } from "./recursion.js";
 
 // for backwards compatibility with push streams
 export function selectRecordStream({
@@ -24,11 +25,18 @@ export function selectRecordStream({
 
   return new TransformStream({
     async transform(query, controller) {
+      // exit if record is undefined
+      if (query === undefined) return;
+
       if (schemaResolved === undefined) {
         schemaResolved = await buildSchema({ fs, bare, dir, csvsdir });
       }
 
-      const entries = await selectRecord({
+      // Iterate the pull stream record by record instead of calling
+      // selectRecord, which collects the entire result set into an array
+      // before anything is emitted — on a large dataset the consumer saw
+      // no output until the whole select had finished.
+      const recordStream = selectRecordStreamPull({
         fs,
         bare,
         dir,
@@ -39,8 +47,8 @@ export function selectRecordStream({
         schema: schemaResolved,
       });
 
-      for (const entry of entries) {
-        controller.enqueue(entry);
+      for await (const record of recordStream) {
+        controller.enqueue(record);
       }
     },
   });
@@ -66,6 +74,15 @@ export function selectRecordStreamPull({
 
   let proseAllowed = undefined;
 
+  // `~` recursion traversals extracted from the current query arm
+  let traversals = [];
+
+  // base values yielded by the current query arm, for closure dedup
+  let yielded = undefined;
+
+  // records reached by closure, waiting to be pulled
+  let pending = [];
+
   const seen = queries.length > 1 ? new Set() : undefined;
 
   // Resolve the schema at most once and reuse it across every query arm and
@@ -90,7 +107,17 @@ export function selectRecordStreamPull({
     const q = currentQuery();
 
     // Extract prose filters
-    const { proseEntries, stripped } = extractProse(q);
+    const { proseEntries, stripped: strippedProse } = extractProse(q);
+
+    // Extract `~` recursion traversals from the query
+    const { traversals: traversalsNew, stripped } =
+      strippedProse["~"] !== undefined
+        ? await extractTraversals(fs, csvsdir, await getSchema(), strippedProse)
+        : { traversals: [], stripped: strippedProse };
+
+    traversals = traversalsNew;
+
+    yielded = new Set();
 
     const proseFilters = proseEntries.filter(({ content }) => content !== "");
 
@@ -129,6 +156,25 @@ export function selectRecordStreamPull({
   }
 
   async function pullRecord() {
+    // drain records reached by `~` closure before pulling the stream
+    if (pending.length > 0) {
+      const entry = pending.shift();
+
+      const record = light
+        ? entry
+        : await buildRecord({
+            fs,
+            bare,
+            dir,
+            csvsdir,
+            query: [entry],
+            prose,
+            schema: await getSchema(),
+          });
+
+      return { done: false, value: record };
+    }
+
     if (isDone) {
       return { done: true, value: undefined };
     }
@@ -190,6 +236,43 @@ export function selectRecordStreamPull({
 
       if (baseValue !== undefined) {
         seen.add(baseValue);
+      }
+    }
+
+    if (traversals.length > 0) {
+      const seed = value[value._];
+
+      if (seed !== undefined) {
+        // a seed that matches a stop is neither returned nor expanded
+        if (traversals.every((traversal) => traversal.isStopped(seed))) {
+          return pullRecord();
+        }
+
+        if (yielded.has(seed)) {
+          return pullRecord();
+        }
+
+        yielded.add(seed);
+
+        // records reached by closure are returned regardless
+        // of whether they match the query fields
+        for (const traversal of traversals) {
+          if (traversal.isStopped(seed)) continue;
+
+          for (const reached of traversal.closure(seed)) {
+            if (yielded.has(reached)) continue;
+
+            yielded.add(reached);
+
+            if (seen !== undefined) {
+              if (seen.has(reached)) continue;
+
+              seen.add(reached);
+            }
+
+            pending.push({ _: q._, [q._]: reached });
+          }
+        }
       }
     }
 

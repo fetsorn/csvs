@@ -20,6 +20,33 @@ fn unescape(s: &str) -> String {
 }
 
 impl Line {
+    /// Parse one tablet record into an unescaped Line.
+    /// A CSVS record is exactly "key,value" — a record that cannot be
+    /// split into two fields is malformed data, and silently defaulting
+    /// the missing field would corrupt the result far from the cause.
+    /// Report the tablet and the offending line instead.
+    pub fn from_record(filename: &str, record: &csv::StringRecord) -> crate::Result<Line> {
+        match (record.get(0), record.get(1)) {
+            (Some(key), Some(value)) => Ok(Line {
+                key: key.to_owned(),
+                value: value.to_owned(),
+            }
+            .unescape()),
+            _ => {
+                let content = record.iter().collect::<Vec<_>>().join(",");
+
+                let position = match record.position() {
+                    None => String::new(),
+                    Some(p) => format!(" at line {}", p.line()),
+                };
+
+                Err(crate::Error::from_message(format!(
+                    "malformed line in {filename}: expected two comma-separated fields, got {content:?}{position}"
+                )))
+            }
+        }
+    }
+
     pub fn escape(&self) -> Line {
         Line {
             key: escape(&self.key),

@@ -211,5 +211,24 @@
     "initial": "default",
     "query": [ "query_version" ],
     "expected": [ "record_version" ]
+  },
+  {
+    "name": "recursion closure over memory",
+    "initial": "recursion",
+    "query": [ "query_recursion" ],
+    "expected": [
+      "record_recursion_japan",
+      "record_recursion_everest",
+      "record_recursion_tokio"
+    ]
+  },
+  {
+    "name": "recursion with stop value",
+    "initial": "recursion",
+    "query": [ "query_recursion_stop" ],
+    "expected": [
+      "record_recursion_japan",
+      "record_recursion_tokio"
+    ]
   }
 ]

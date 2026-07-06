@@ -5,7 +5,7 @@ use std::pin::Pin;
 use async_stream::try_stream;
 use futures_util::pin_mut;
 use futures_util::stream::StreamExt;
-mod groups;
+pub(crate) mod groups;
 mod tablet;
 mod line;
 mod strategy;

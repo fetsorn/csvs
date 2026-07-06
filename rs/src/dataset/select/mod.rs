@@ -4,6 +4,8 @@ use futures_core::stream::Stream;
 use futures_util::pin_mut;
 use futures_util::stream::StreamExt;
 use std::collections::HashSet;
+use std::pin::Pin;
+mod recursion;
 
 pub fn select_record_stream(
     dataset: Dataset,
@@ -71,77 +73,103 @@ pub fn select_record_stream(
             let mut q_stripped = q.clone();
             q_stripped.prose.clear();
 
+            // Extract `~` recursion traversals from the query
+            let mut traversals = if q_stripped.leaves.contains_key("~") {
+                let schema = dataset.get_schema().await?;
+
+                recursion::extract_traversals(&dataset.dir, &schema, &mut q_stripped)?
+            } else {
+                vec![]
+            };
+
+            // Base values yielded by this query, for closure dedup
+            let mut yielded: HashSet<String> = HashSet::new();
+
             let has_leaves = q_stripped.leaves.len() > 0;
 
-            if has_leaves {
-                let stream = dataset.clone().query_record_stream(q_stripped);
-
-                pin_mut!(stream);
-
-                while let Some(entry) = stream.next().await {
-                    let entry = entry?;
-
-                    // Filter by prose matches
-                    if let Some(ref allowed) = prose_allowed {
-                        if let Some(ref bv) = entry.base_value {
-                            if !allowed.contains(bv) {
-                                continue;
-                            }
-                        }
-                    }
-
-                    if let Some(ref mut set) = seen {
-                        if let Some(ref bv) = entry.base_value {
-                            if !set.insert(bv.clone()) {
-                                continue;
-                            }
-                        }
-                    }
-
-                    if light {
-                        yield entry;
-
-                        continue;
-                    }
-
-                    let entry = dataset.clone().build_record(entry).await?;
-
-                    yield entry;
-                }
+            let mut stream: Pin<Box<dyn Stream<Item = Result<Entry>> + Send>> = if has_leaves {
+                Box::pin(dataset.clone().query_record_stream(q_stripped))
             } else {
-                let stream = dataset.clone().select_option_stream(q_stripped);
+                Box::pin(dataset.clone().select_option_stream(q_stripped))
+            };
 
-                pin_mut!(stream);
+            while let Some(entry) = stream.next().await {
+                let entry = entry?;
 
-                while let Some(entry) = stream.next().await {
-                    let entry = entry?;
-
-                    // Filter by prose matches
-                    if let Some(ref allowed) = prose_allowed {
-                        if let Some(ref bv) = entry.base_value {
-                            if !allowed.contains(bv) {
-                                continue;
-                            }
+                // Filter by prose matches
+                if let Some(ref allowed) = prose_allowed {
+                    if let Some(ref bv) = entry.base_value {
+                        if !allowed.contains(bv) {
+                            continue;
                         }
                     }
+                }
 
-                    if let Some(ref mut set) = seen {
-                        if let Some(ref bv) = entry.base_value {
-                            if !set.insert(bv.clone()) {
-                                continue;
-                            }
+                if let Some(ref mut set) = seen {
+                    if let Some(ref bv) = entry.base_value {
+                        if !set.insert(bv.clone()) {
+                            continue;
                         }
                     }
+                }
 
-                    if light {
-                        yield entry;
+                let seed = match (traversals.is_empty(), &entry.base_value) {
+                    // no recursion — yield the entry as before
+                    (true, _) | (false, None) => {
+                        if light {
+                            yield entry;
+                        } else {
+                            yield dataset.clone().build_record(entry).await?;
+                        }
 
                         continue;
                     }
+                    (false, Some(bv)) => bv.clone(),
+                };
 
-                    let entry = dataset.clone().build_record(entry).await?;
+                // a seed that matches a stop is neither returned nor expanded
+                if traversals.iter().all(|t| t.is_stopped(&seed)) {
+                    continue;
+                }
 
+                if !yielded.insert(seed.clone()) {
+                    continue;
+                }
+
+                if light {
                     yield entry;
+                } else {
+                    yield dataset.clone().build_record(entry).await?;
+                }
+
+                // records reached by closure are returned regardless
+                // of whether they match the query fields
+                for traversal in traversals.iter_mut() {
+                    if traversal.is_stopped(&seed) {
+                        continue;
+                    }
+
+                    for value in traversal.closure(&seed) {
+                        if !yielded.insert(value.clone()) {
+                            continue;
+                        }
+
+                        if let Some(ref mut set) = seen {
+                            if !set.insert(value.clone()) {
+                                continue;
+                            }
+                        }
+
+                        let mut reached = Entry::new(&q.base);
+
+                        reached.base_value = Some(value);
+
+                        if light {
+                            yield reached;
+                        } else {
+                            yield dataset.clone().build_record(reached).await?;
+                        }
+                    }
                 }
             }
         }

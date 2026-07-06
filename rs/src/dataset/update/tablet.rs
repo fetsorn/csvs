@@ -85,14 +85,9 @@ pub async fn append_tablet(path: PathBuf, tablet: Tablet, entry: Entry, temp_pat
     for result in rdr.records() {
         let record = result?;
 
-        let line_escaped = Line {
-            key: match record.get(0) { None => String::from(""), Some(s) => s.to_owned() },
-            value: match record.get(1) { None => String::from(""), Some(s) => s.to_owned() }
-        };
+        let line = Line::from_record(&tablet.filename, &record)?;
 
-        let line = line_escaped.unescape();
-
-        state = update_line(state.clone(), line)?;
+        state = update_line(state.clone(), line.clone())?;
 
         for key in &state.keys_inserted {
             match values.get(key) {
@@ -123,7 +118,7 @@ pub async fn append_tablet(path: PathBuf, tablet: Tablet, entry: Entry, temp_pat
             // it will be inserted again before the next key
         } else {
             // otherwise write line unchanged
-            wtr.serialize(line_escaped)?;
+            wtr.serialize(line.escape())?;
 
             wtr.flush()?;
         }

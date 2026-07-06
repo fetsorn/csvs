@@ -34,12 +34,7 @@ pub fn option_tablet_stream(
         for result in rdr.records() {
             let record = result?;
 
-            let line_escaped = Line {
-                key: match record.get(0) { None => String::from(""), Some(s) => s.to_owned() },
-                value: match record.get(1) { None => String::from(""), Some(s) => s.to_owned() }
-            };
-
-            let line = line_escaped.unescape();
+            let line = Line::from_record(&tablet.filename, &record)?;
 
             state = option_line(tablet.clone(), state, line)?;
 

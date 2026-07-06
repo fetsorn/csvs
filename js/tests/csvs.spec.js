@@ -701,3 +701,53 @@ describe("selectRecord reads the schema tablet once, not once per record", () =>
     expect(reads()).toBe(0);
   });
 });
+
+describe("a malformed tablet line is reported with tablet name and content", () => {
+  // Regression: a data tablet contained a line without a comma (a key
+  // fused with the next value). buildLine passed undefined to
+  // unescapeNewline and crashed with an unrelated TypeError deep in the
+  // stream, hiding which tablet and line were at fault. A malformed
+  // line must abort with an error naming the tablet and the line.
+
+  function makeStore(prefix) {
+    const dir = nodefs.mkdtempSync(join(os.tmpdir(), prefix));
+
+    nodefs.writeFileSync(join(dir, ".csvs.csv"), "version,0.0.4\nid,test\n");
+    nodefs.writeFileSync(join(dir, "_-_.csv"), "event,actname\n");
+    nodefs.writeFileSync(
+      join(dir, "event-actname.csv"),
+      "event1,name1\nevent2name2\nevent3,name3\n",
+    );
+
+    return dir;
+  }
+
+  test("select rejects and names the tablet and the offending line", async () => {
+    const dir = makeStore("csvs-malformed-");
+
+    await expect(
+      selectRecord({
+        fs: nodefs,
+        bare: true,
+        dir,
+        query: { _: "event" },
+      }),
+    ).rejects.toThrow(
+      /malformed line in event-actname\.csv.*event2name2/,
+    );
+  });
+
+  test("light select rejects instead of crashing", async () => {
+    const dir = makeStore("csvs-malformed-light-");
+
+    await expect(
+      selectRecord({
+        fs: nodefs,
+        bare: true,
+        dir,
+        query: { _: "event", actname: "name" },
+        light: true,
+      }),
+    ).rejects.toThrow(/malformed line in event-actname\.csv/);
+  });
+});

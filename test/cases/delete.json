@@ -22,5 +22,11 @@
     "initial": "newline",
     "query": ["record_newline"],
     "expected": "deleted_newline"
+  },
+  {
+    "name": "keeps an escaped newline in a surviving line",
+    "initial": "newline",
+    "query": ["record2002"],
+    "expected": "deleted_keep_newline"
   }
 ]

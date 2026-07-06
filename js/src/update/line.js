@@ -1,15 +1,10 @@
-import csv from "papaparse";
-import { unescapeNewline } from "../escape.js";
+import { parseLine } from "../line.js";
 
 // returns keys to insert
-export function updateLine(state, line) {
+export function updateLine(tablet, state, line) {
   let keysInserted = [];
 
-  let {
-    data: [[fstEscaped, snd]],
-  } = csv.parse(line, { delimiter: "," });
-
-  const fst = unescapeNewline(fstEscaped);
+  const [fst] = parseLine(tablet.filename, line);
 
   const fstIsNew = state.fst === undefined || state.fst !== fst;
 

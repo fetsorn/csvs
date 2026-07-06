@@ -1,18 +1,13 @@
-import csv from "papaparse";
-import { unescapeNewline } from "../escape.js";
+import { parseLine } from "../line.js";
 
 export function pruneLine(tablet, line) {
-  const {
-    data: [[fstEscaped, sndEscaped]],
-  } = csv.parse(line, { delimiter: "," });
+  if (line === "") return false;
 
-  const fst = unescapeNewline(fstEscaped);
-
-  const snd = unescapeNewline(sndEscaped);
+  const [fst, snd] = parseLine(tablet.filename, line);
 
   const trait = tablet.traitIsFirst ? fst : snd;
 
-  const isMatch = line !== "" && trait === tablet.trait;
+  const isMatch = trait === tablet.trait;
 
   return isMatch;
 }
