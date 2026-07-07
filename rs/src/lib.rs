@@ -5,6 +5,7 @@ mod grain;
 mod line;
 mod schema;
 
+pub use dataset::prose::ProseAddress;
 pub use dataset::Dataset;
 pub use entry::Entry;
 pub use error::{Error, Result};
