@@ -12,10 +12,6 @@ import { unescapeNewline } from "./escape.js";
  * @returns {[string, string]} unescaped [key, value] pair.
  */
 export function parseLine(filename, line) {
-  if (process.env.CSVS_TRACE) {
-    console.error(`[csvs] ${filename}: ${JSON.stringify(line)}`);
-  }
-
   const {
     data: [[fstEscaped, sndEscaped]],
   } = csv.parse(line, { delimiter: "," });
